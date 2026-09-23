@@ -1,0 +1,28 @@
+{
+  "name": "@be/claude",
+  "version": "0.2.0",
+  "description": "ClaudeOver - main-menu tile that switches Jibo into Claude mode via jibo-gateway (double head pat to exit).",
+  "main": "index.js",
+  "config": {
+    "standalone": true
+  },
+  "jibo": {
+    "main": "index.html",
+    "type": "asset-pack",
+    "launchRule": "launch.rule",
+    "prompt": "ClaudeOver",
+    "display-name": "claudeover"
+  },
+  "files": [
+    "resources",
+    "index.*",
+    "gateway_client.js",
+    "config.json",
+    "launch.rule"
+  ],
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=6.0"
+  },
+  "dependencies": {}
+}

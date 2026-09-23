@@ -1,0 +1,6 @@
+node_modules/
+.env
+gateway/data/
+gateway/test/.data/
+skill/claude/config.json
+.DS_Store

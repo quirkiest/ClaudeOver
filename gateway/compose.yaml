@@ -1,0 +1,24 @@
+# jibo-gateway v0.2.0 (ClaudeOver)
+#   docker compose up -d --build
+#   docker compose logs -f
+name: jibo
+
+services:
+  gateway:
+    build: .
+    image: jibo-gateway:0.2.0
+    container_name: jibo-gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: ${TZ:-Australia/Melbourne}
+      PORT: "8765"          # in-container port is fixed; change the host side via PORT in .env
+    # Bind to the LAN address only (set BIND_ADDR in .env). Docker-published
+    # ports bypass ufw, so ALLOW_IPS + token are the real gate - see README.
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:${PORT:-8765}:8765"
+    volumes:
+      - ./data:/data
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }

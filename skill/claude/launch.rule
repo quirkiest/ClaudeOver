@@ -1,0 +1,5 @@
+TopRule = $* (
+    ((ask | (talk to) | (speak to) | hey) $CLAUDE)
+) $* {skill='\@be/claude'};
+
+CLAUDE = claude | cloud | clawed | clod | claud | clode;

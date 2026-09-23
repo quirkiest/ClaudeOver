@@ -1,0 +1,18 @@
+{
+  "name": "jibo-gateway",
+  "version": "0.2.0",
+  "description": "ClaudeOver gateway: LAN Claude service + Jibo takeover (ROM) worker",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node test/takeover.test.js && node test/smoke.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "rom-control": "^2.0.2"
+  }
+}
