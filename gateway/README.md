@@ -1,4 +1,4 @@
-# ClaudeOver gateway (jibo-gateway) v0.2.2
+# ClaudeOver gateway (jibo-gateway) v0.2.3
 
 This is a LAN service in Docker. It does two jobs:
 
@@ -34,11 +34,17 @@ Every error body carries a speakable `reply`/`esml` too.
 
 - **Start:** waits `TAKEOVER_START_DELAY_MS` (2.5 s) so the menu skill can exit
   first, then connects. It gives up after 45 s with reason `error: connect timeout`.
-- **On:** Jibo says "Claude mode is on…" and the screen shows the instructions
+- **On:** Jibo says "Claude mode is on…". The wake word is armed only *after*
+  the greeting, because it contains "hey Jibo" and he would otherwise wake on his
+  own voice. The screen shows the instructions
   plus the version (`TAKEOVER_SCREEN=text`; set it to `eye` to keep the normal eye).
 - **Ways to exit:**
   - **swipe down** on the screen (✔ verified on Jibo)
-  - **double head pat** (two separate touches within 1.5 s): ✘ **not firing yet**, under diagnosis with `TAKEOVER_DEBUG=1`
+  - **double head pat**: two separate pats within 1.5 s (v0.2.3 fix; see below)
+  - **head hold**: a continuous touch of 2 s or more
+  - Jibo sends `onHeadTouch` **only while touched**: one event per pat, a stream every
+    ~50–210 ms while held, and **no release event**. Touches are therefore split by
+    time gaps (> 280 ms = new touch). v0.2.2 waited for a release, so it never fired.
   - the robot's own remote-skill head-touch exit (ROM close code 4000) is honoured, with no auto-reconnect
   - saying **"Claude off" / "stop Claude" / "normal mode"** after "Hey Jibo"
   - **idle timeout** (`TAKEOVER_IDLE_MIN`, default 30)
@@ -64,7 +70,7 @@ sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # then log
 git clone git@github.com:<you>/ClaudeOver.git ~/ClaudeOver && cd ~/ClaudeOver
 ./gateway/setup.sh --import ~/jibo-gateway/.env   # keeps the existing key + token (or plain ./gateway/setup.sh)
 docker compose up -d --build                      # from the repo root or from gateway/
-docker compose logs -f                            # "jibo-gateway v0.2.2 listening"
+docker compose logs -f                            # "jibo-gateway v0.2.3 listening"
 ```
 
 `setup.sh` (safe to re-run) does the following:
@@ -109,7 +115,7 @@ GATEWAY_TOKEN=$TOKEN GATEWAY_HOST=192.168.20.26 node client/gateway_client.js --
 docker compose logs -f | grep takeover
 ```
 
-**Offline tests** (no key, no robot): `npm install && npm test`. This runs 16
+**Offline tests** (no key, no robot): `npm install && npm test`. This runs 24
 takeover-worker tests against a fake rom-control client and 20 HTTP
 end-to-end tests against a fake Anthropic API.
 
@@ -155,6 +161,6 @@ if they differ), plus this README's title.
 | `src/server.js` | 0.2.0 |
 | `setup.sh` | 0.1.0 (new in 0.2.1) |
 | `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.1 |
-| `src/takeover.js` | 0.2.2 (close-code 4000 → off; `TAKEOVER_DEBUG` raw event log) |
+| `src/takeover.js` | 0.2.3 (gap-based pat/hold detection; greet before wakeword; close 4000 → off; `TAKEOVER_DEBUG`) |
 | `client/gateway_client.js` | 0.2.0 (adds `takeover()` and `--takeover` CLI) |
 | `test/smoke.js` / `test/takeover.test.js` | 0.2.0 |

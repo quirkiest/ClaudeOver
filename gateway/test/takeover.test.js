@@ -100,27 +100,85 @@ async function test (name, fn) {
     assert.equal(c.log[c.log.length - 1], 'watch');
   });
 
-  await test('double head pat → off, goodbye spoken, client destroyed', async () => {
-    const { t, client } = make();
+  // Real Jibo behaviour (log 2026-09-23): one onHeadTouch per pat, a stream every
+  // ~50-210 ms while held, and NO release event. Test cfg: gap 80 ms, hold 300 ms.
+  const T = { doublePatMs: 600, touchGapMs: 80, holdMs: 300 };
+  const touch = (c) => c.emit('headTouch', { activePads: ['frontLeft'] });
+
+  await test('double pat (two isolated events, real-log spacing) → off, goodbye, destroyed', async () => {
+    const { t, client } = make(T);
     t.start(); await sleep(60);
     const c = client();
-    pat(c, true); pat(c, true); pat(c, false);   // held touch = one start
-    await sleep(20);
-    assert.equal(t.state, 'on', 'single held touch must not exit');
-    pat(c, true); await sleep(60);
+    touch(c); await sleep(150); touch(c);
+    await sleep(60);
     assert.equal(t.state, 'off');
     assert.equal(t.reason, 'double head pat');
     assert.ok(c.log.some((l) => l.startsWith('say:Okay, back to normal')));
     assert.ok(c.destroyed);
   });
 
-  await test('two pats too far apart do not exit', async () => {
-    const { t, client } = make();
+  await test('no release events needed: first touch does not block later pats', async () => {
+    const { t, client } = make(T);
     t.start(); await sleep(60);
     const c = client();
-    pat(c, true); pat(c, false); await sleep(400); pat(c, true); pat(c, false);
+    touch(c); await sleep(700);
+    assert.equal(t.state, 'on');
+    touch(c); await sleep(150); touch(c); await sleep(60);
+    assert.equal(t.state, 'off', 'v0.2.2 bug: this never fired');
+  });
+
+  await test('single pats spaced out do not exit', async () => {
+    const { t, client } = make(T);
+    t.start(); await sleep(60);
+    const c = client();
+    touch(c); await sleep(700); touch(c); await sleep(700); touch(c);
     await sleep(20);
     assert.equal(t.state, 'on');
+  });
+
+  await test('hold (stream every ~50 ms) >= holdMs → off with reason head hold', async () => {
+    const { t, client } = make(T);
+    t.start(); await sleep(60);
+    const c = client();
+    for (let i = 0; i < 9; i++) { touch(c); await sleep(50); }
+    await sleep(60);
+    assert.equal(t.state, 'off'); assert.equal(t.reason, 'head hold');
+  });
+
+  await test('short hold (< holdMs) is one touch, not a double pat', async () => {
+    const { t, client } = make(T);
+    t.start(); await sleep(60);
+    const c = client();
+    for (let i = 0; i < 4; i++) { touch(c); await sleep(50); }
+    await sleep(20);
+    assert.equal(t.state, 'on');
+  });
+
+  await test('greeting finishes BEFORE wakeword is armed (no self-wake on "hey Jibo")', async () => {
+    const { t, client } = make();
+    t.start(); await sleep(60);
+    const log = client().log;
+    const iGreet = log.findIndex((l) => l.startsWith('say:Claude mode is on'));
+    const iWatch = log.indexOf('watch');
+    assert.ok(iGreet >= 0 && iWatch > iGreet, log.join(' | '));
+  });
+
+  await test('hotword during greeting is ignored', async () => {
+    const calls = [];
+    let c;
+    const t = new Takeover({
+      converse: async (sid, text) => { calls.push(text); return { reply: 'R' }; },
+      log: () => {}, version: 'x',
+      createClient: () => { c = new FakeClient(['my own greeting echo']); c.sayMs = 150; return c; },
+    }, { startDelayMs: 5, idleMinutes: 0 });
+    t.start(); await sleep(40);                        // connected; 150 ms greeting in progress
+    assert.ok(c.log.some((l) => l.startsWith('say:Claude mode is on')), 'greeting started');
+    assert.ok(!c.log.includes('watch'), 'wakeword not armed yet');
+    c.emit('hotword'); await sleep(200);
+    assert.equal(calls.length, 0, 'self-wake ignored');
+    assert.ok(c.log.includes('watch'), 'armed after greeting');
+    assert.equal(t.state, 'on');
+    t.shutdown();
   });
 
   await test('swipe down → off', async () => {

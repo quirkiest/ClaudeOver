@@ -2,6 +2,7 @@
 /**
  * @be/claude - "ClaudeOver" main-menu tile.
  *
+ * v0.2.1 - exit hint now "pat twice or hold" (matches gateway 0.2.3).
  * v0.2.0 - Tapping the tile asks jibo-gateway to switch Jibo into Claude mode
  * (the gateway opens a ROM session: every "Hey Jibo ..." then goes to Claude).
  * This skill only flips the switch: show instructions, POST /v1/takeover,
@@ -21,7 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const gw = require('./gateway_client');
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const TAG = '[claudeover v' + VERSION + ']';
 const DUMP_FILE = '/tmp/claude-skill-last.json';
 const CONFIG_FILE = path.join(__dirname, 'config.json');
@@ -122,7 +123,7 @@ function makePanel () {
   help.style.cssText = 'position:absolute;left:60px;right:60px;top:270px;font-size:34px;line-height:1.6;color:#d8cfc6;';
   help.innerHTML =
     '&bull; Say <b>&ldquo;Hey Jibo&rdquo;</b>, then ask Claude anything<br>' +
-    '&bull; <b>Pat my head twice</b> to go back to normal<br>' +
+    '&bull; <b>Pat my head twice</b> (or hold it) to go back to normal<br>' +
     '&bull; or swipe down, or say <b>&ldquo;Claude off&rdquo;</b>';
   root.appendChild(help);
 

@@ -3,12 +3,12 @@
 Claude as a voice mode for a revived Jibo robot (BEam firmware + 5x1 server).
 
 Tap the **ClaudeOver** tile in Jibo's menu, and from then on every
-"Hey Jibo …" goes to Claude. **Pat his head twice** to get normal Jibo back.
+"Hey Jibo …" goes to Claude. **Pat his head twice** (or hold it, or swipe down) to get normal Jibo back.
 
 | Component | Version | What it is |
 |---|---|---|
-| [`gateway/`](gateway/) | **0.2.2** | Docker service on the LAN. Holds the API key, talks to Claude, and runs the **takeover worker**: a ROM session to Jibo that handles wake word → speech → Claude → reply. |
-| [`skill/`](skill/) | **0.2.0** | On-robot BEam skill: the ClaudeOver menu tile. Tapping it asks the gateway to switch takeover on, then exits. |
+| [`gateway/`](gateway/) | **0.2.3** | Docker service on the LAN. Holds the API key, talks to Claude, and runs the **takeover worker**: a ROM session to Jibo that handles wake word → speech → Claude → reply. |
+| [`skill/`](skill/) | **0.2.1** | On-robot BEam skill: the ClaudeOver menu tile. Tapping it asks the gateway to switch takeover on, then exits. |
 | [`skill/deploy.sh`](skill/deploy.sh) | 0.3.1 | Pushes and registers the skill on Jibo from the linux box. |
 | [`bridge/`](bridge/) | 0.4.0 | The original ROM bridge (`jibo_claude.js`). It's superseded by the gateway's takeover worker and kept for reference. |
 | [`docs/`](docs/) | – | Handoff notes: history, dead ends, findings. |

@@ -25,7 +25,9 @@ const DEFAULTS = {
   startDelayMs: 2500,       // let the menu skill exit before ROM grabs the foreground
   idleMinutes: 30,          // auto-off after this long without a wakeword
   connectTimeoutMs: 45000,  // give up if ROM never becomes ready
-  doublePatMs: 1500,        // two head-touch starts within this window = off
+  doublePatMs: 1500,        // two separate pats within this window = off
+  touchGapMs: 280,          // events closer than this belong to the same touch (a hold streams every 50-210 ms)
+  holdMs: 2000,             // a continuous touch this long = off
   screen: 'text',           // 'text' = show instructions; 'eye' = normal eye
   sessionId: 'takeover',
   debug: false,             // log every raw ROM event + subscription result (TAKEOVER_DEBUG=1)
@@ -54,7 +56,8 @@ class Takeover extends EventEmitter {
     this.client = null;
     this._busy = false;
     this._timers = { start: null, idle: null, connect: null };
-    this._lastTouchActive = false;
+    this._lastTouchAt = 0;
+    this._touchStartAt = 0;
     this._touchStarts = [];
     this._stopRequested = null;
   }
@@ -147,8 +150,14 @@ class Takeover extends EventEmitter {
     this._resetIdle();
     this._hookConnection();
     this._showHome();
+    // Greet BEFORE arming the wakeword: the greeting contains "hey Jibo" and
+    // he would otherwise wake on his own voice (seen on Jibo 2026-09-23).
+    this._busy = true;
+    await this._say('Claude mode is on. Say hey Jibo, then ask me anything. Pat my head twice, or swipe down, to go back to normal.');
+    this._busy = false;
+    if (this.state !== 'on') return;
+    if (this._stopRequested) { const r = this._stopRequested; this._stopRequested = null; return this._doStop(r); }
     try { c.audio.watchWakeword(); } catch (e) { this.deps.log('error', 'watchWakeword failed', { err: e.message }); }
-    await this._say('Claude mode is on. Say hey Jibo, then ask me anything. Pat my head twice to go back to normal.');
   }
 
   /**
@@ -207,7 +216,7 @@ class Takeover extends EventEmitter {
     if (!c || !c.display) return;
     try {
       if (this.cfg.screen === 'text') {
-        c.display.showText('Claude mode  -  say "Hey Jibo", then ask  -  pat my head twice to exit  -  v' + this.deps.version);
+        c.display.showText('Claude mode  -  say "Hey Jibo", then ask  -  pat my head twice or swipe down to exit  -  v' + this.deps.version);
       } else {
         c.display.showEye();
       }
@@ -220,18 +229,33 @@ class Takeover extends EventEmitter {
     try { await c.behavior.say(text); } catch (e) { this.deps.log('error', 'say failed', { err: e && e.message }); }
   }
 
+  /**
+   * Jibo sends onHeadTouch ONLY while a pad is touched: one event for a pat,
+   * a stream every ~50-210 ms for a hold, and never a "released" event
+   * (verified on Jibo 2026-09-23). So touches are separated by time gaps:
+   *   gap > touchGapMs          -> a new touch starts
+   *   2 starts within doublePat -> double pat  -> off
+   *   one touch >= holdMs       -> head hold   -> off
+   */
   _onHeadTouch (ev) {
     if (this.cfg.debug) this.deps.log('info', 'headTouch', { active: ev && ev.activePads, pads: ev && ev.pads });
     const active = !!(ev && ev.activePads && ev.activePads.length);
-    const started = active && !this._lastTouchActive;
-    this._lastTouchActive = active;
-    if (!started || this.state !== 'on') return;
+    if (!active || this.state !== 'on') return;
     const now = Date.now();
-    this._touchStarts = this._touchStarts.filter((t) => now - t <= this.cfg.doublePatMs);
-    this._touchStarts.push(now);
-    if (this._touchStarts.length >= 2) {
+    const gap = now - this._lastTouchAt;
+    this._lastTouchAt = now;
+    if (gap > this.cfg.touchGapMs) {                  // new touch
+      this._touchStartAt = now;
+      this._touchStarts = this._touchStarts.filter((t) => now - t <= this.cfg.doublePatMs);
+      this._touchStarts.push(now);
+      if (this._touchStarts.length >= 2) {
+        this._touchStarts = [];
+        this.stop('double head pat');
+      }
+    } else if (now - this._touchStartAt >= this.cfg.holdMs) {   // same touch, held long enough
       this._touchStarts = [];
-      this.stop('double head pat');
+      this._touchStartAt = now + 1e9;                  // fire once per hold
+      this.stop('head hold');
     }
   }
 
@@ -301,7 +325,8 @@ class Takeover extends EventEmitter {
     this._busy = false;
     this._stopRequested = null;
     this._touchStarts = [];
-    this._lastTouchActive = false;
+    this._lastTouchAt = 0;
+    this._touchStartAt = 0;
     if (c) { try { c.destroy ? c.destroy() : c.disconnect(); } catch (e) { /* no-op */ } }
     this._set('off', reason);
   }

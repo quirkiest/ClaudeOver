@@ -1,8 +1,8 @@
-# ClaudeOver skill (`@be/claude`) v0.2.0
+# ClaudeOver skill (`@be/claude`) v0.2.1
 
 | Component | Version |
 |---|---|
-| skill (`claude/`) | **0.2.0** (ClaudeOver menu tile) |
+| skill (`claude/`) | **0.2.1** (ClaudeOver menu tile) |
 | `claude/gateway_client.js` | 0.2.0. A copy of `gateway/client/gateway_client.js`; the tests check they're identical. |
 | `deploy.sh` | 0.3.1 |
 | `tools/register.js` | 0.2.1 |
@@ -11,7 +11,7 @@
 This is an on-robot BEam skill that appears as a **ClaudeOver** tile in Jibo's
 main menu, after Bad Apple. Tapping it:
 
-1. shows a panel: **ClaudeOver v0.2.0** with the instructions,
+1. shows a panel: **ClaudeOver v0.2.1** with the instructions,
 2. says "Switching to Claude mode.",
 3. calls `POST /v1/takeover {state:"on"}` on the gateway,
 4. exits at once, so the gateway's ROM session can take over about 2.5 s later.
