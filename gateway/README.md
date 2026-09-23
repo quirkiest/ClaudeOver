@@ -1,4 +1,4 @@
-# ClaudeOver gateway (jibo-gateway) v0.2.9
+# ClaudeOver gateway (jibo-gateway) v0.3.0
 
 This is a LAN service in Docker. It does two jobs:
 
@@ -65,6 +65,36 @@ Every error body carries a speakable `reply`/`esml` too.
   - **idle timeout** (`TAKEOVER_IDLE_MIN`, default 30)
   - `POST /v1/takeover {off}`
 - A stop requested mid-answer lets the answer finish first, then says goodbye.
+
+### Feedback and logging (0.3.0)
+
+Every "Hey Jibo" ends in exactly one **turn** log line (`msg:"turn"`). It has the `outcome` plus the
+timings `listenMs`, `claudeMs`, `sayMs` and `totalMs`. The question and answer text are included only
+with `LOG_TRANSCRIPTS=1` or `TAKEOVER_DEBUG=1`.
+
+| outcome | What Jibo does |
+|---|---|
+| `answered` | Speaks Claude's reply. |
+| `no-speech` | Says "Sorry, I did not hear a question." (before 0.3.0 this was **silent** and unlogged). |
+| `empty` | Says "Sorry, I did not catch that." |
+| `claude-error` | The Claude API failed or timed out. Jibo says "Something went wrong in my head…" or, for rate limits, "…breather…". The line includes `status`. |
+| `error` | Unexpected failure. Jibo says "Something went wrong in my head…". The line includes `err`. |
+| `say-failed` | Jibo couldn't speak the reply. Logged only. |
+| `off` / `stopped` | A voice exit, or an exit requested during the turn. |
+
+Other behaviour:
+
+- **Slow Claude:** after `TAKEOVER_THINK_MS` (3.5 s) Jibo says "Let me think.", so it's never a long silence.
+  `CLAUDE_TIMEOUT_MS` is now 12 s per attempt, with 1 retry.
+- A "Hey Jibo" heard **during** a turn logs `hotword ignored (busy with a turn)`.
+- If the wake-word stream drops, you'll see `wake-word stream dropped, reconnecting in 3 s`.
+- **Watch it live:** run `./watch.sh` from the repo root on the linux box. It uses `tools/pretty.js` to
+  turn the JSON log into readable lines: mode on/off, then one line per question with its outcome and
+  timings, plus `Q:` / `A:` when `LOG_TRANSCRIPTS=1`. `./watch.sh 1h` includes the last hour first;
+  `VERBOSE=1 ./watch.sh` also shows raw ROM events.
+- **Transcript file:** with `LOG_TRANSCRIPTS=1`, every takeover turn and every `/v1/ask` call is appended
+  to `gateway/data/transcripts.jsonl`, one JSON line each. Read it with
+  `tail -f gateway/data/transcripts.jsonl`, or `jq . gateway/data/transcripts.jsonl`.
 - If the ROM session drops, `rom-control` reconnects and the wake word is re-armed.
 - **Handing Jibo back (0.2.5):** every exit sends a clean WebSocket close (1000) and waits up to 2 s
   for Jibo to acknowledge it before destroying the client. rom-control's `destroy()` does
@@ -95,7 +125,7 @@ sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # then log
 git clone git@github.com:<you>/ClaudeOver.git ~/ClaudeOver && cd ~/ClaudeOver
 ./gateway/setup.sh --import ~/jibo-gateway/.env   # keeps the existing key + token (or plain ./gateway/setup.sh)
 docker compose up -d --build                      # from the repo root or from gateway/
-docker compose logs -f                            # "jibo-gateway v0.2.9 listening"
+docker compose logs -f                            # "jibo-gateway v0.3.0 listening"
 ```
 
 `setup.sh` (safe to re-run) does the following:
@@ -140,7 +170,7 @@ GATEWAY_TOKEN=$TOKEN GATEWAY_HOST=192.168.20.26 node client/gateway_client.js --
 docker compose logs -f | grep takeover
 ```
 
-**Offline tests** (no key, no robot): `npm install && npm test`. This runs 32
+**Offline tests** (no key, no robot): `npm install && npm test`. This runs 35
 takeover-worker tests against a fake rom-control client and 22 HTTP
 end-to-end tests against a fake Anthropic API.
 
@@ -183,10 +213,11 @@ if they differ), plus this README's title.
 
 | File | Version |
 |---|---|
-| `src/server.js` | 0.2.7 (`TAKEOVER_RECOVERY_MS`). 0.2.5: (shutdown waits for the clean ROM close). 0.2.4: (takeover exit safety net `[[EXIT]]`; no `claude,` prefix stripping in takeover; `GET /screen.svg`) |
+| `src/server.js` | 0.3.0 (`transcripts.jsonl`, `CLAUDE_TIMEOUT_MS` 12 s, `TAKEOVER_THINK_MS`). 0.2.7: (`TAKEOVER_RECOVERY_MS`). 0.2.5: (shutdown waits for the clean ROM close). 0.2.4: (takeover exit safety net `[[EXIT]]`; no `claude,` prefix stripping in takeover; `GET /screen.svg`) |
+| `tools/pretty.js` | 0.1.0 (new: readable live log formatter for `../watch.sh`) |
 | `src/screen.js` | 0.2.9 (exit text: hold my head). 0.2.4: (new: Claude-mode screen SVG + short text fallback) |
 | `setup.sh` | 0.1.0 (new in 0.2.1) |
 | `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.4 (`HOST_PORT` for the screen URL) |
-| `src/takeover.js` | 0.2.9 (greeting: hold to exit). 0.2.8: (double-tap screen exit, `_onTap()`). 0.2.7: (ACO `recoveryTimeout` via `_tuneAco()`). 0.2.6: (clean close of the :8088 wake-word stream, `_stopWake()`). 0.2.5: clean ROM close on exit, `_release()`. 0.2.4: fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
+| `src/takeover.js` | 0.3.0 (turn outcomes and log, no-speech feedback, thinking cue, wake-word drop log). 0.2.9: (greeting: hold to exit). 0.2.8: (double-tap screen exit, `_onTap()`). 0.2.7: (ACO `recoveryTimeout` via `_tuneAco()`). 0.2.6: (clean close of the :8088 wake-word stream, `_stopWake()`). 0.2.5: clean ROM close on exit, `_release()`. 0.2.4: fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
 | `client/gateway_client.js` | 0.2.0 (adds `takeover()` and `--takeover` CLI) |
-| `test/smoke.js` / `test/takeover.test.js` | 0.2.5 (22 + 32 tests) |
+| `test/smoke.js` / `test/takeover.test.js` | 0.3.0 (22 + 35 tests) |

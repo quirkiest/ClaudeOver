@@ -233,16 +233,57 @@ async function test (name, fn) {
     assert.ok(!said.includes(''), 'must not speak the empty exit reply');
   });
 
-  await test('heard-text logging: shape only by default, text with logText', async () => {
+  await test('turn log: one line per hotword; text only with logText; transcript record only with logText', async () => {
     for (const logText of [false, true]) {
-      const logs = [];
-      const { t, client } = make({ logText }, ['what time is it'], { log: (lvl, msg, o) => logs.push([msg, o]) });
+      const logs = []; const recs = [];
+      const { t, client } = make({ logText, thinkMs: 0 }, ['what time is it'], { log: (lvl, msg, o) => logs.push([msg, o, lvl]), record: (o) => recs.push(o) });
       t.start(); await sleep(60); client().emit('hotword'); await sleep(60);
-      const h = logs.find((l) => l[0] === 'takeover heard');
-      assert.ok(h, 'logged'); assert.equal(h[1].words, 4); assert.equal(h[1].off, false);
+      const h = logs.find((l) => l[0] === 'turn');
+      assert.ok(h, 'logged'); assert.equal(h[1].outcome, 'answered'); assert.equal(h[1].words, 4);
+      assert.ok(typeof h[1].listenMs === 'number' && typeof h[1].claudeMs === 'number' && typeof h[1].totalMs === 'number');
       assert.equal('text' in h[1], logText);
-      t.stop('test'); await sleep(40);
+      assert.equal(recs.length, logText ? 1 : 0);
+      if (logText) { assert.equal(recs[0].text, 'what time is it'); assert.equal(recs[0].reply, 'R:what time is it'); }
+      await t.shutdown();
     }
+  });
+
+  await test('no speech → spoken feedback + turn outcome no-speech (was silent)', async () => {
+    const logs = [];
+    const { t, client } = make({}, [], { log: (lvl, msg, o) => logs.push([msg, o]) });
+    t.start(); await sleep(60);
+    const c = client();
+    c.audio.awaitSpeech = () => Promise.reject(Object.assign(new Error('x'), { code: 'SPEECH_TIMEOUT' }));
+    c.emit('hotword'); await sleep(60);
+    assert.ok(c.log.some((l) => l === 'say:Sorry, I did not hear a question.'), c.log.join(','));
+    assert.equal(logs.find((l) => l[0] === 'turn')[1].outcome, 'no-speech');
+    assert.equal(t.state, 'on');
+    await t.shutdown();
+  });
+
+  await test('slow Claude → "Let me think." then the answer; Claude error → spoken error + outcome claude-error', async () => {
+    const logs = [];
+    const { t, client } = make({ thinkMs: 30 }, ['slow one'], {
+      log: (lvl, msg, o) => logs.push([msg, o]),
+      converse: async () => { await sleep(80); return { reply: 'Something went wrong in my head. Try again?', error: 'upstream failure', status: 502, route: 'claude' }; },
+    });
+    t.start(); await sleep(60);
+    const c = client(); c.emit('hotword'); await sleep(200);
+    const says = c.log.filter((l) => l.startsWith('say:'));
+    const iThink = says.indexOf('say:Let me think.'); const iErr = says.indexOf('say:Something went wrong in my head. Try again?');
+    assert.ok(iThink >= 0 && iErr > iThink, says.join(' | '));
+    const turn = logs.find((l) => l[0] === 'turn')[1];
+    assert.equal(turn.outcome, 'claude-error'); assert.equal(turn.status, 502); assert.equal(turn.thinkingCue, true);
+    await t.shutdown();
+  });
+
+  await test('hotword while busy is logged, not silently dropped', async () => {
+    const logs = [];
+    const { t, client } = make({ thinkMs: 0 }, ['q'], { log: (lvl, msg) => logs.push(msg), converse: async () => { await sleep(80); return { reply: 'a', route: 'claude' }; } });
+    t.start(); await sleep(60);
+    client().emit('hotword'); await sleep(20); client().emit('hotword'); await sleep(120);
+    assert.ok(logs.includes('hotword ignored (busy with a turn)'));
+    await t.shutdown();
   });
 
   await test('stop during a turn waits for the reply to finish', async () => {

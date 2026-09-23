@@ -56,6 +56,7 @@ const DEFAULTS = {
   releaseMs: 2000,
   recoveryMs: 3000,         // ACO recoveryTimeout sent to Jibo (rom-control default 20000); 0 = leave rom-control's
   keepAliveMs: 10000,       // ACO keepAliveTimeout (rom-control default, unchanged)          // wait this long for Jibo to ack the clean ROM close
+  thinkMs: 3500,            // say "Let me think." if Claude hasn't answered by then (0 = off)
   logText: false,           // include heard text in 'takeover heard' log lines (LOG_TRANSCRIPTS=1)
 };
 
@@ -168,7 +169,7 @@ class Takeover extends EventEmitter {
     if (!c) return;
     if (this.state === 'on') {            // reconnect after a drop: re-hook + resume listening
       this._hookConnection();
-      try { c.audio.watchWakeword(); } catch (e) { /* no-op */ }
+      this._armWake(c);
       return;
     }
     if (this.state !== 'starting') return;
@@ -185,7 +186,7 @@ class Takeover extends EventEmitter {
     this._busy = false;
     if (this.state !== 'on') return;
     if (this._stopRequested) { const r = this._stopRequested; this._stopRequested = null; return this._doStop(r); }
-    try { c.audio.watchWakeword(); } catch (e) { this.deps.log('error', 'watchWakeword failed', { err: e.message }); }
+    this._armWake(c);
   }
 
   /**
@@ -254,10 +255,33 @@ class Takeover extends EventEmitter {
     } catch (e) { /* display is best-effort */ }
   }
 
+  /** Speak; resolves true on success, false on failure (logged). */
   async _say (text) {
     const c = this.client;
-    if (!c) return;
-    try { await c.behavior.say(text); } catch (e) { this.deps.log('error', 'say failed', { err: e && e.message }); }
+    if (!c) return false;
+    try { await c.behavior.say(text); return true; } catch (e) { this.deps.log('error', 'say failed', { err: e && e.message }); return false; }
+  }
+
+  /** Arm "Hey Jibo" and log when the wake-word stream drops (otherwise hotwords vanish silently). */
+  _armWake (c) {
+    try { c.audio.watchWakeword(); } catch (e) { this.deps.log('error', 'watchWakeword failed', { err: e && e.message }); return; }
+    const w = c._conn && c._conn._wakewordWatcher;
+    if (w && typeof w.on === 'function' && !w._coLogged) {
+      w._coLogged = true;
+      w.on('disconnected', () => { if (w._running) this.deps.log('info', 'wake-word stream dropped, reconnecting in 3 s'); });
+      w.on('error', (e) => this.deps.log('error', 'wake-word stream error', { err: e && e.message }));
+      if (this.cfg.debug) w.on('connected', () => this.deps.log('info', 'wake-word stream connected'));
+    }
+  }
+
+  /** One structured line per "Hey Jibo" (always), plus the transcript file (LOG_TRANSCRIPTS). */
+  _record (turn) {
+    const base = Object.assign({}, turn);
+    if (!(this.cfg.debug || this.cfg.logText)) { delete base.text; delete base.reply; }
+    this.deps.log(turn.outcome === 'answered' || turn.outcome === 'off' ? 'info' : 'warn', 'turn', base);
+    if (this.cfg.logText && typeof this.deps.record === 'function') {
+      try { this.deps.record(Object.assign({ via: 'takeover' }, turn)); } catch (e) { /* best-effort */ }
+    }
   }
 
   /**
@@ -305,43 +329,68 @@ class Takeover extends EventEmitter {
   }
 
   async _onHotword () {
-    if (this.state !== 'on' || this._busy) return;
+    if (this.state !== 'on') return;
+    if (this._busy) { this.deps.log('info', 'hotword ignored (busy with a turn)'); return; }
     const c = this.client;
     this._busy = true;
     this._resetIdle();
+    const t0 = Date.now();
+    const turn = { n: this.turns + 1, outcome: 'error' };
+    let thinking = null;
+    let thinkTimer = null;
     try {
       this._stopWake(c);
       let heard;
       try {
         heard = await c.audio.awaitSpeech({ mode: 'local', time: this.cfg.listenMs, noSpeechTime: this.cfg.listenMs });
       } catch (e) {
-        if (e && e.code === 'SPEECH_TIMEOUT') return;
+        if (e && e.code === 'SPEECH_TIMEOUT') {
+          turn.outcome = 'no-speech'; turn.listenMs = Date.now() - t0;
+          if (!this._stopRequested) await this._say('Sorry, I did not hear a question.');
+          return;
+        }
         throw e;
       }
+      turn.listenMs = Date.now() - t0;
       const text = String((heard && (heard.content || heard.speech || heard.text)) || '').trim();
-      if (!text) { await this._say('Sorry, I did not catch that.'); return; }
-      if (this._stopRequested) return;
+      turn.text = text;
+      if (!text) { turn.outcome = 'empty'; await this._say('Sorry, I did not catch that.'); return; }
+      if (this._stopRequested) { turn.outcome = 'stopped'; return; }
 
       const off = isOffCommand(text);
-      // Transcript text only with TAKEOVER_DEBUG or LOG_TRANSCRIPTS; otherwise just its shape.
-      this.deps.log('info', 'takeover heard', Object.assign({ words: normalise(text).split(' ').length, off: off },
-        (this.cfg.debug || this.cfg.logText) ? { text: text } : {}));
-      if (off) { this._busy = false; return this.stop('voice'); }
+      turn.words = normalise(text).split(' ').length;
+      if (off) { turn.outcome = 'off'; this._busy = false; return this.stop('voice'); }
 
+      // Thinking cue: if Claude is slow, say so instead of going silent.
+      if (this.cfg.thinkMs > 0) {
+        thinkTimer = setTimeout(() => { thinking = this._say('Let me think.'); }, this.cfg.thinkMs);
+      }
+      const t1 = Date.now();
       const out = await this.deps.converse(this.cfg.sessionId, text, { via: 'takeover' });
+      clearTimeout(thinkTimer);
+      turn.claudeMs = Date.now() - t1;
+      turn.route = out && out.route;
+      if (thinking) { turn.thinkingCue = true; await thinking; }
       this.turns += 1;
-      if (this._stopRequested) return;
+      if (this._stopRequested) { turn.outcome = 'stopped'; return; }
       // Safety net: Claude recognised an exit request the regex missed (see server.js EXIT_MARK).
-      if (out && out.exit) { this._busy = false; return this.stop('voice (claude)'); }
-      await this._say(out.reply);
+      if (out && out.exit) { turn.outcome = 'off'; this._busy = false; return this.stop('voice (claude)'); }
+      turn.reply = out && out.reply;
+      if (out && out.error) { turn.outcome = 'claude-error'; turn.status = out.status; } else { turn.outcome = 'answered'; }
+      const t2 = Date.now();
+      const spoke = await this._say(out.reply);
+      turn.sayMs = Date.now() - t2;
+      if (!spoke) turn.outcome = 'say-failed';
     } catch (e) {
+      clearTimeout(thinkTimer);
+      turn.outcome = 'error'; turn.err = e && e.message;
       this.deps.log('error', 'takeover turn failed', { err: e && e.message });
       await this._say('Something went wrong in my head. Try again?');
     } finally {
+      turn.totalMs = Date.now() - t0;
+      this._record(turn);
       this._busy = false;
-      if (this.state === 'on' && !this._stopRequested) {
-        try { c.audio.watchWakeword(); } catch (e) { /* session gone */ }
-      }
+      if (this.state === 'on' && !this._stopRequested) this._armWake(c);
       if (this._stopRequested) { const r = this._stopRequested; this._stopRequested = null; this._doStop(r); }
     }
   }

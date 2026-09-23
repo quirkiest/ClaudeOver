@@ -1,4 +1,4 @@
-# ClaudeOver — Claude Handoff v0.7.9
+# ClaudeOver — Claude Handoff v0.8.1
 
 Supersedes `claude-handoff-v6.3.md` (kept in this folder for history: dead
 ends, BEam internals, the gate results). Written 2026-09-23.
@@ -67,7 +67,7 @@ sessions, speech shaping, end detection and local time/date answers.
 
 | Path | Version | State |
 |---|---|---|
-| `gateway/` | 0.2.9 | 0.2.7 is running. 0.2.8 = double-tap exit. 0.2.9 = head hold advertised as the exit. 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
+| `gateway/` | 0.3.0 | 0.2.9 is running: post-exit recovery was quick in the one test so far. 0.3.0 = no silent failures and Q&A logging (§10). 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
 | `skill/claude` | 0.2.4 | 0.2.2 **installed and working** (0.2.4 = exit hint "hold my head"; deploy with `./skill/deploy.sh code`) (tile after Bad Apple, original speech-bubble-and-spark icon; source `skill/assets/claude-icon.svg`). Waz may swap in his own icon later, which must be a 300×300 PNG with a **transparent** background. 7 harness tests. Strict ES2015. |
 | `skill/deploy.sh` | 0.3.2 | Two-stage install (`install` = skill + lazySkills; `tile` = tile + icon). `umask 022`, `chmod -R a+rX`, and a permission check after every action. New `check`, `fixperms` and `untile` commands. `test/deploy.test.sh`: 19 checks against a mock tree with umask 077. |
 | `skill/tools/register.js` | 0.3.0 | Writes files in place (keeps the owner and mode) and forces them world-readable. Backups copy the original's mode. Refuses to add anything to an unreadable tree. |
@@ -174,3 +174,26 @@ delete `~/jibo-gateway`.
   (default 3000) instead.
 - **If there's still a delay:** look for an explicit end-session command in the ROM protocol,
   or at whether the `Speech` subscription (`Listen: true`) needs to be unsubscribed before closing.
+
+## 10. Gateway 0.3.0: no silent failures, Q&A logging (2026-09-23)
+
+- **Report:** "lots of cases where I ask a question and nothing happens".
+- **Audit of the turn:**
+  - Claude API failures were already spoken ("Something went wrong in my head" / "breather"), but the
+    20 s timeout with 1 retry could mean about 40 s of silence first.
+  - **Silent paths:** `SPEECH_TIMEOUT` (listen ended with no result) returned silently, **unlogged**.
+    A hotword during a busy turn was dropped silently. A failed `say` was only logged. A dropped
+    wake-word stream was invisible.
+- **Fixes:**
+  - Every hotword now produces a `turn` log line with `outcome` and timings.
+  - `no-speech` is now spoken: "Sorry, I did not hear a question."
+  - "Let me think." after `TAKEOVER_THINK_MS` (3.5 s).
+  - `CLAUDE_TIMEOUT_MS` is now 12 s.
+  - A busy hotword and a wake-word stream drop are both logged.
+  - `LOG_TRANSCRIPTS=1` also appends to `gateway/data/transcripts.jsonl`.
+- **The linux box `.env` has `CLAUDE_TIMEOUT_MS=20000` set explicitly:** change it to 12000 by hand.
+- **Live console:** `./watch.sh` (repo root, linux box) + `gateway/tools/pretty.js` show colour-coded turns,
+  `Q:` / `A:` and timings in real time.
+- **Next:** run with `LOG_TRANSCRIPTS=1` for a while, then read the outcomes. Lots of `no-speech` means
+  Jibo's local listening is the weak link. Nothing logged at all after a "Hey Jibo" means the hotword was never received.
+

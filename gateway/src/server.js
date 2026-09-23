@@ -42,13 +42,14 @@ const CFG = {
   maxTurns:      Number(env('MAX_TURNS', 12)),          // messages kept per session
   sessionTtlS:   Number(env('SESSION_TTL_S', 300)),     // idle expiry
   ratePerMin:    Number(env('RATE_PER_MIN', 20)),       // per client IP
-  timeoutMs:     Number(env('CLAUDE_TIMEOUT_MS', 20000)),
+  timeoutMs:     Number(env('CLAUDE_TIMEOUT_MS', 12000)),   // x2 with the one retry: worst case ~24 s before the spoken error
   tz:            env('JIBO_TZ', env('TZ', 'Australia/Melbourne')),
   place:         env('JIBO_PLACE', 'Melbourne, Australia'),
   localHandlers: env('LOCAL_HANDLERS', '1') === '1',
   persist:       env('PERSIST', '0') === '1',
   dataDir:       env('DATA_DIR', '/data'),
-  logText:       env('LOG_TRANSCRIPTS', '0') === '1',
+  logText:       env('LOG_TRANSCRIPTS', '0') === '1',   // also writes DATA_DIR/transcripts.jsonl
+  toThinkMs:     Number(env('TAKEOVER_THINK_MS', 3500)),
   // ClaudeOver (takeover) mode
   takeover:      env('TAKEOVER_ENABLED', '1') === '1',
   jiboHost:      env('JIBO_HOST', '192.168.20.40'),
@@ -85,6 +86,20 @@ const MSG_BUSY  = 'I need a little breather. Ask me again in a minute.';
 function log(level, msg, extra) {
   const line = { t: new Date().toISOString(), level, msg, ...(extra || {}) };
   (level === 'error' ? console.error : console.log)(JSON.stringify(line));
+}
+
+/**
+ * Q&A transcript file (LOG_TRANSCRIPTS=1): one JSON line per turn in
+ * DATA_DIR/transcripts.jsonl (gateway/data/ on the linux box, via the volume).
+ * Takeover turns carry outcome + timings; /v1/ask turns carry route + timings.
+ */
+const TRANSCRIPT_FILE = path.join(CFG.dataDir, 'transcripts.jsonl');
+function record(obj) {
+  if (!CFG.logText) return;
+  try {
+    fs.mkdirSync(CFG.dataDir, { recursive: true });
+    fs.appendFileSync(TRANSCRIPT_FILE, JSON.stringify(Object.assign({ t: new Date().toISOString() }, obj)) + '\n');
+  } catch (e) { log('error', 'transcript write failed', { err: e.message }); }
 }
 
 // ── Time helpers ────────────────────────────────────────────────────────────
@@ -341,7 +356,8 @@ async function converse(sessionId, rawText, opts) {
       try {
         ({ reply, usage } = await askClaude(s, r.text, via));
       } catch (e) {
-        log('error', 'claude call failed', { session: sessionId, status: e.status, err: e.message, ms: Date.now() - t0 });
+        log('error', 'claude call failed', { via, session: sessionId, status: e.status, err: e.message, ms: Date.now() - t0 });
+        if (via !== 'takeover') record({ via, session: sessionId, route: 'error', status: e.status, err: e.message, ms: Date.now() - t0, text });
         const busy = e.status === 429;
         return { error: 'upstream failure', status: busy ? 503 : 502, reply: busy ? MSG_BUSY : MSG_ERROR,
           end: false, route: r.target, session: sessionId, turns: s.history.length };
@@ -360,6 +376,7 @@ async function converse(sessionId, rawText, opts) {
     ...(usage ? { in_tok: usage.input_tokens, out_tok: usage.output_tokens } : {}),
     ...(CFG.logText ? { text, reply } : {}),
   });
+  if (via !== 'takeover') record({ via, session: sessionId, route: exit ? 'exit' : r.target, ms: Date.now() - t0, text, reply });
   return { reply, end, exit, route: exit ? 'exit' : r.target, session: sessionId, turns: s.history.length };
 }
 
@@ -387,11 +404,12 @@ async function handleReset(req, res) {
 const takeover = new Takeover({
   converse,
   log,
+  record,
   version: VERSION,
   createClient: (opts) => { const { Client } = require('rom-control'); return new Client(opts); },
 }, {
   jiboHost: CFG.jiboHost, listenMs: CFG.listenMs, idleMinutes: CFG.toIdleMin,
-  startDelayMs: CFG.toStartDelay, screen: CFG.toScreen, screenUrl: CFG.screenUrl, recoveryMs: CFG.toRecoveryMs, debug: CFG.toDebug, logText: CFG.logText,
+  startDelayMs: CFG.toStartDelay, screen: CFG.toScreen, screenUrl: CFG.screenUrl, recoveryMs: CFG.toRecoveryMs, thinkMs: CFG.toThinkMs, debug: CFG.toDebug, logText: CFG.logText,
 });
 
 async function handleTakeover(req, res) {

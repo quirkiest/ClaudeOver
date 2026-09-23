@@ -193,6 +193,7 @@ async function t(name, fn) {
   });
   await t('transcripts not logged by default', () => {
     assert.ok(!g.log().includes('Melbourne from London'));
+    assert.ok(!fs.existsSync(path.join(ROOT, 'test', '.data', 'transcripts.jsonl')), 'no transcript file unless LOG_TRANSCRIPTS=1');
   });
 
   await t('GET /screen.svg: SVG with version, no token needed', async () => {
