@@ -1,4 +1,4 @@
-# ClaudeOver — Claude Handoff v0.7.8
+# ClaudeOver — Claude Handoff v0.7.9
 
 Supersedes `claude-handoff-v6.3.md` (kept in this folder for history: dead
 ends, BEam internals, the gate results). Written 2026-09-23.
@@ -29,7 +29,8 @@ Never say "the laptop"; it's ambiguous.
   The cause is on Jibo's side. Next step: Jibo's own logs during the deaf minute (location still to be found).
 - **Double pat is dead** (0.2.7 debug log): Jibo sends `onHeadTouch` only when the pad pattern changes,
   with no release, so a 2nd pat on the same pad produces no event. **0.2.8 / skill 0.2.3** make
-  **double-tap the screen** the exit instead (every `onTap` arrives). With 0.2.5, double pat also stopped
+  **double-tap the screen** the exit instead (every `onTap` arrives). **0.2.9 / skill 0.2.4:** Waz chose
+  the **head hold (2 s)** as the advertised exit. Double-tap, swipe down and voice stay active. With 0.2.5, double pat also stopped
   working in one run, probably because Jibo was carrying stale sessions from earlier unclean
   exits. Re-test it on a freshly rebooted Jibo with `TAKEOVER_DEBUG=1`.
 
@@ -66,8 +67,8 @@ sessions, speech shaping, end detection and local time/date answers.
 
 | Path | Version | State |
 |---|---|---|
-| `gateway/` | 0.2.8 | 0.2.7 is running. 0.2.8 = double-tap screen exit. 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
-| `skill/claude` | 0.2.3 | 0.2.2 **installed and working** (0.2.3 = exit hint text; deploy with `./skill/deploy.sh code`) (tile after Bad Apple, original speech-bubble-and-spark icon; source `skill/assets/claude-icon.svg`). Waz may swap in his own icon later, which must be a 300×300 PNG with a **transparent** background. 7 harness tests. Strict ES2015. |
+| `gateway/` | 0.2.9 | 0.2.7 is running. 0.2.8 = double-tap exit. 0.2.9 = head hold advertised as the exit. 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
+| `skill/claude` | 0.2.4 | 0.2.2 **installed and working** (0.2.4 = exit hint "hold my head"; deploy with `./skill/deploy.sh code`) (tile after Bad Apple, original speech-bubble-and-spark icon; source `skill/assets/claude-icon.svg`). Waz may swap in his own icon later, which must be a 300×300 PNG with a **transparent** background. 7 harness tests. Strict ES2015. |
 | `skill/deploy.sh` | 0.3.2 | Two-stage install (`install` = skill + lazySkills; `tile` = tile + icon). `umask 022`, `chmod -R a+rX`, and a permission check after every action. New `check`, `fixperms` and `untile` commands. `test/deploy.test.sh`: 19 checks against a mock tree with umask 077. |
 | `skill/tools/register.js` | 0.3.0 | Writes files in place (keeps the owner and mode) and forces them world-readable. Backups copy the original's mode. Refuses to add anything to an unreadable tree. |
 | `bridge/jibo_claude.js` | 0.4.0 | Legacy/fallback. **Never run alongside the takeover.** |

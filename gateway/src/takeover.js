@@ -181,7 +181,7 @@ class Takeover extends EventEmitter {
     // Greet BEFORE arming the wakeword: the greeting contains "hey Jibo" and
     // he would otherwise wake on his own voice (seen on Jibo 2026-09-23).
     this._busy = true;
-    await this._say('Claude mode is on. Say hey Jibo, then ask me anything. Double-tap my screen, or swipe down, to go back to normal.');
+    await this._say('Claude mode is on. Say hey Jibo, then ask me anything. Hold my head for two seconds to go back to normal.');
     this._busy = false;
     if (this.state !== 'on') return;
     if (this._stopRequested) { const r = this._stopRequested; this._stopRequested = null; return this._doStop(r); }
@@ -269,7 +269,7 @@ class Takeover extends EventEmitter {
    *   one touch >= holdMs       -> head hold   -> off
    */
   /**
-   * Double-tap the screen = off (0.2.8). Replaces double pat as the main touch exit:
+   * Double-tap the screen = off (0.2.8; kept as a quiet extra since 0.2.9, where head hold is the advertised exit):
    * Jibo only sends onHeadTouch when the pad pattern CHANGES and never on release,
    * so a second pat on the same pad produces no event at all (seen in 0.2.7 debug log).
    * Every screen tap arrives as its own onTap event.

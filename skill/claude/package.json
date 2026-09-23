@@ -1,6 +1,6 @@
 {
   "name": "@be/claude",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "ClaudeOver - main-menu tile that switches Jibo into Claude mode via jibo-gateway (double head pat to exit).",
   "main": "index.js",
   "config": {

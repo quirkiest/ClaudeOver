@@ -1,4 +1,4 @@
-# jibo-gateway v0.2.8 (ClaudeOver)
+# jibo-gateway v0.2.9 (ClaudeOver)
 #   docker compose up -d --build
 #   docker compose logs -f
 name: jibo
@@ -6,7 +6,7 @@ name: jibo
 services:
   gateway:
     build: .
-    image: jibo-gateway:0.2.8
+    image: jibo-gateway:0.2.9
     container_name: jibo-gateway
     restart: unless-stopped
     env_file: .env

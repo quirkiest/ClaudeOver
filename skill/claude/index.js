@@ -2,6 +2,7 @@
 /**
  * @be/claude - "ClaudeOver" main-menu tile.
  *
+ * v0.2.4 - exit hint now "hold my head" (gateway 0.2.9).
  * v0.2.3 - exit hint now "double-tap my screen" (gateway 0.2.8; double pat is unreliable).
  * v0.2.2 - new menu icon (speech bubble + spark, original; source skill/assets/claude-icon.svg).
  * v0.2.1 - exit hint now "pat twice or hold" (matches gateway 0.2.3).
@@ -9,7 +10,7 @@
  * (the gateway opens a ROM session: every "Hey Jibo ..." then goes to Claude).
  * This skill only flips the switch: show instructions, POST /v1/takeover,
  * say the result, exit quickly so the gateway's ROM session can take the
- * foreground. Leaving Claude mode (double head pat / swipe down / "Claude off"
+ * foreground. Leaving Claude mode (head hold / swipe down / "Claude off"
  * / idle timeout) is handled by the gateway, not here.
  *
  * Config: config.json next to this file, written by deploy.sh from the
@@ -24,7 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const gw = require('./gateway_client');
 
-const VERSION = '0.2.3';
+const VERSION = '0.2.4';
 const TAG = '[claudeover v' + VERSION + ']';
 const DUMP_FILE = '/tmp/claude-skill-last.json';
 const CONFIG_FILE = path.join(__dirname, 'config.json');
@@ -125,8 +126,8 @@ function makePanel () {
   help.style.cssText = 'position:absolute;left:60px;right:60px;top:270px;font-size:34px;line-height:1.6;color:#d8cfc6;';
   help.innerHTML =
     '&bull; Say <b>&ldquo;Hey Jibo&rdquo;</b>, then ask Claude anything<br>' +
-    '&bull; <b>Double-tap my screen</b> (or swipe down) to go back to normal<br>' +
-    '&bull; or hold my head, or say <b>&ldquo;Claude off&rdquo;</b>';
+    '&bull; <b>Hold my head</b> for two seconds to go back to normal<br>' +
+    '&bull; or swipe down, or say <b>&ldquo;Claude off&rdquo;</b>';
   root.appendChild(help);
 
   document.body.appendChild(root);
