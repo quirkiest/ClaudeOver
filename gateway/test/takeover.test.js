@@ -27,6 +27,10 @@ class FakeClient extends EventEmitter {
     };
     this.behavior = { say (t) { self.log.push('say:' + t); return sleep(self.sayMs || 5); } };
     this.display = { showText (t) { self.log.push('text'); }, showEye () { self.log.push('eye'); } };
+    // minimal RomConnection stand-in: event bus + websocket + subscribe
+    this._conn = new EventEmitter();
+    this._conn.ws = new EventEmitter();
+    this._conn.subscribeHeadTouch = () => Promise.resolve({ ResponseCode: 200 });
   }
   connect () { setTimeout(() => this.emit('ready'), 5); return Promise.resolve(); }
   destroy () { this.destroyed = true; this.log.push('destroy'); }
@@ -186,6 +190,42 @@ async function test (name, fn) {
     c.emit('disconnect'); c.emit('ready'); await sleep(20);
     assert.deepEqual(c.log, ['watch']);
     assert.equal(t.state, 'on');
+  });
+
+  await test('ROM close code 4000 (robot head-touch exit) → off, no reconnect', async () => {
+    const { t, client } = make();
+    t.start(); await sleep(60);
+    const c = client();
+    assert.ok(c._conn.ws._claudeoverClose, 'close hook attached');
+    c._conn.ws.emit('close', 4000, Buffer.from('HeadTouchExit'));
+    await sleep(10);
+    assert.equal(t.state, 'off'); assert.match(t.reason, /head touch exit/);
+    assert.ok(c.destroyed, 'client destroyed so rom-control cannot auto-reconnect');
+  });
+
+  await test('ROM close code 1006 (network drop) → stays on for auto-reconnect', async () => {
+    const { t, client } = make();
+    t.start(); await sleep(60);
+    client()._conn.ws.emit('close', 1006, '');
+    await sleep(10);
+    assert.equal(t.state, 'on');
+  });
+
+  await test('debug mode logs raw ROM events + head touches', async () => {
+    const logs = [];
+    let client;
+    const t = new Takeover({
+      converse: async () => ({ reply: 'x' }), version: 'x',
+      log: (lvl, msg, extra) => logs.push([msg, extra]),
+      createClient: () => (client = new FakeClient()),
+    }, { startDelayMs: 5, idleMinutes: 0, debug: true });
+    t.start(); await sleep(60);
+    client._conn.emit('event', 'tx1', { Event: 'onHeadTouch', Pads: [true, false, false, false, false, false] });
+    client.emit('headTouch', { activePads: ['frontLeft'], pads: [true] });
+    assert.ok(logs.some(([m, e]) => m === 'rom event' && e.event === 'onHeadTouch'));
+    assert.ok(logs.some(([m]) => m === 'headTouch'));
+    assert.ok(logs.some(([m]) => m === 'subscribe headtouch (re)'));
+    t.shutdown();
   });
 
   await test('shutdown releases Jibo immediately', async () => {

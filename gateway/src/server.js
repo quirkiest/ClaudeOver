@@ -55,6 +55,7 @@ const CFG = {
   toIdleMin:     Number(env('TAKEOVER_IDLE_MIN', 30)),
   toStartDelay:  Number(env('TAKEOVER_START_DELAY_MS', 2500)),
   toScreen:      env('TAKEOVER_SCREEN', 'text'),
+  toDebug:       env('TAKEOVER_DEBUG', '0') === '1',
 };
 
 if (!process.env.ANTHROPIC_API_KEY) {
@@ -365,7 +366,7 @@ const takeover = new Takeover({
   createClient: (opts) => { const { Client } = require('rom-control'); return new Client(opts); },
 }, {
   jiboHost: CFG.jiboHost, listenMs: CFG.listenMs, idleMinutes: CFG.toIdleMin,
-  startDelayMs: CFG.toStartDelay, screen: CFG.toScreen,
+  startDelayMs: CFG.toStartDelay, screen: CFG.toScreen, debug: CFG.toDebug,
 });
 
 async function handleTakeover(req, res) {

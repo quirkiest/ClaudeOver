@@ -16,6 +16,9 @@ const { EventEmitter } = require('node:events');
 
 const OFF_RE = /^(?:(?:ok(?:ay)?|hey)[,\s]+)?(?:(?:turn\s+)?(?:claude|cloud)\s+(?:mode\s+)?off|(?:stop|exit|end|quit|leave)\s+(?:claude|cloud)(?:\s+mode)?|normal\s+mode|go\s+back\s+to\s+normal|back\s+to\s+normal)[.!\s]*$/i;
 
+// ROM websocket close codes (@jibo/command-protocol DisconnectCode)
+const CLOSE = { HeadTouchExit: 4000, RobotError: 4001, NewConnection: 4002, Inactivity: 4003 };
+
 const DEFAULTS = {
   jiboHost: '192.168.20.40',
   listenMs: 15000,
@@ -25,9 +28,11 @@ const DEFAULTS = {
   doublePatMs: 1500,        // two head-touch starts within this window = off
   screen: 'text',           // 'text' = show instructions; 'eye' = normal eye
   sessionId: 'takeover',
+  debug: false,             // log every raw ROM event + subscription result (TAKEOVER_DEBUG=1)
 };
 
 function nowIso () { return new Date().toISOString(); }
+function safe (v) { try { return JSON.parse(JSON.stringify(v)); } catch (e) { return String(v); } }
 
 class Takeover extends EventEmitter {
   /**
@@ -118,6 +123,7 @@ class Takeover extends EventEmitter {
     client.on('hotword', () => this._onHotword());
     client.on('headTouch', (ev) => this._onHeadTouch(ev));
     client.on('gesture', (ev) => {
+      if (this.cfg.debug) this.deps.log('info', 'gesture', { type: ev && ev.type, direction: ev && ev.direction });
       if (ev && ev.isSwipe && String(ev.direction).toLowerCase() === 'down') this.stop('swipe down');
     });
     client.on('disconnect', () => {
@@ -129,7 +135,8 @@ class Takeover extends EventEmitter {
   async _onReady () {
     const c = this.client;
     if (!c) return;
-    if (this.state === 'on') {            // reconnect after a drop: just resume listening
+    if (this.state === 'on') {            // reconnect after a drop: re-hook + resume listening
+      this._hookConnection();
       try { c.audio.watchWakeword(); } catch (e) { /* no-op */ }
       return;
     }
@@ -138,9 +145,61 @@ class Takeover extends EventEmitter {
     this._set('on');
     this.turns = 0;
     this._resetIdle();
+    this._hookConnection();
     this._showHome();
     try { c.audio.watchWakeword(); } catch (e) { this.deps.log('error', 'watchWakeword failed', { err: e.message }); }
     await this._say('Claude mode is on. Say hey Jibo, then ask me anything. Pat my head twice to go back to normal.');
+  }
+
+  /**
+   * Things rom-control doesn't do for us (v0.2.2):
+   *  - watch the websocket close code: 4000 = the robot's remote skill was
+   *    exited by head touch -> treat as "user wants out", don't auto-reconnect
+   *  - optional raw event logging for diagnosis
+   */
+  _hookConnection () {
+    const conn = this.client && this.client._conn;
+    if (!conn) return;
+    const log = this.deps.log;
+    const debug = this.cfg.debug;
+
+    if (debug && !conn._claudeoverDebug) {
+      conn._claudeoverDebug = true;
+      conn.on('event', (txId, body) => {
+        let b = '';
+        try { b = JSON.stringify(body).slice(0, 400); } catch (e) { b = '[unserialisable]'; }
+        log('info', 'rom event', { event: body && body.Event, body: b });
+      });
+    }
+
+    const ws = conn.ws;
+    if (ws && typeof ws.on === 'function' && !ws._claudeoverClose) {
+      ws._claudeoverClose = true;
+      ws.on('close', (code, reason) => this._onRomClose(code, reason ? String(reason) : ''));
+    }
+
+    const sub = (label, fn) => {
+      try {
+        const p = fn();
+        if (p && typeof p.then === 'function') {
+          p.then((r) => { if (debug) log('info', 'subscribe ' + label, { resp: safe(r) }); },
+                 (e) => log('error', 'subscribe ' + label + ' failed', { err: e && e.message }));
+        }
+      } catch (e) { log('error', 'subscribe ' + label + ' threw', { err: e.message }); }
+    };
+    // (swipes already arrive with rom-control's default subscription - verified on Jibo 2026-09-23)
+    if (debug && typeof conn.subscribeHeadTouch === 'function') {
+      sub('headtouch (re)', () => conn.subscribeHeadTouch());
+    }
+  }
+
+  _onRomClose (code, reason) {
+    this.deps.log('info', 'rom socket closed', { code, reason, state: this.state });
+    if (this.state !== 'on' && this.state !== 'starting') return;
+    if (code === CLOSE.HeadTouchExit) return this._teardown('head touch exit (robot)');
+    if (code === CLOSE.NewConnection) return this._teardown('another ROM client connected');
+    if (code === CLOSE.RobotError) return this._teardown('robot error');
+    // other codes: let rom-control auto-reconnect; _onReady re-arms the wakeword
   }
 
   _showHome () {
@@ -162,6 +221,7 @@ class Takeover extends EventEmitter {
   }
 
   _onHeadTouch (ev) {
+    if (this.cfg.debug) this.deps.log('info', 'headTouch', { active: ev && ev.activePads, pads: ev && ev.pads });
     const active = !!(ev && ev.activePads && ev.activePads.length);
     const started = active && !this._lastTouchActive;
     this._lastTouchActive = active;
@@ -250,4 +310,4 @@ class Takeover extends EventEmitter {
   shutdown () { if (this.state !== 'off') this._teardown('gateway shutdown'); }
 }
 
-module.exports = { Takeover, OFF_RE, DEFAULTS };
+module.exports = { Takeover, OFF_RE, DEFAULTS, CLOSE };

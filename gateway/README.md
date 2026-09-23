@@ -1,4 +1,4 @@
-# ClaudeOver gateway (jibo-gateway) v0.2.1
+# ClaudeOver gateway (jibo-gateway) v0.2.2
 
 This is a LAN service in Docker. It does two jobs:
 
@@ -37,8 +37,9 @@ Every error body carries a speakable `reply`/`esml` too.
 - **On:** Jibo says "Claude mode is on…" and the screen shows the instructions
   plus the version (`TAKEOVER_SCREEN=text`; set it to `eye` to keep the normal eye).
 - **Ways to exit:**
-  - **double head pat** (two separate touches within 1.5 s; one long touch doesn't count)
-  - **swipe down** on the screen
+  - **swipe down** on the screen (✔ verified on Jibo)
+  - **double head pat** (two separate touches within 1.5 s): ✘ **not firing yet**, under diagnosis with `TAKEOVER_DEBUG=1`
+  - the robot's own remote-skill head-touch exit (ROM close code 4000) is honoured, with no auto-reconnect
   - saying **"Claude off" / "stop Claude" / "normal mode"** after "Hey Jibo"
   - **idle timeout** (`TAKEOVER_IDLE_MIN`, default 30)
   - `POST /v1/takeover {off}`
@@ -63,7 +64,7 @@ sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # then log
 git clone git@github.com:<you>/ClaudeOver.git ~/ClaudeOver && cd ~/ClaudeOver
 ./gateway/setup.sh --import ~/jibo-gateway/.env   # keeps the existing key + token (or plain ./gateway/setup.sh)
 docker compose up -d --build                      # from the repo root or from gateway/
-docker compose logs -f                            # "jibo-gateway v0.2.1 listening"
+docker compose logs -f                            # "jibo-gateway v0.2.2 listening"
 ```
 
 `setup.sh` (safe to re-run) does the following:
@@ -154,6 +155,6 @@ if they differ), plus this README's title.
 | `src/server.js` | 0.2.0 |
 | `setup.sh` | 0.1.0 (new in 0.2.1) |
 | `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.1 |
-| `src/takeover.js` | 0.2.0 (new) |
+| `src/takeover.js` | 0.2.2 (close-code 4000 → off; `TAKEOVER_DEBUG` raw event log) |
 | `client/gateway_client.js` | 0.2.0 (adds `takeover()` and `--takeover` CLI) |
 | `test/smoke.js` / `test/takeover.test.js` | 0.2.0 |
