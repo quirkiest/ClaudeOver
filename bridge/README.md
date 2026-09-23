@@ -1,6 +1,6 @@
 # bridge/ (legacy)
 
-`jibo_claude.js` **v0.4.0** is the original laptop-hosted ROM bridge: wake word
+`jibo_claude.js` **v0.4.0** is the original ROM bridge (it used to run by hand on the linux box): wake word
 → local ASR → Claude → TTS. It was proven working on 2026-09-22.
 
 It's **superseded by the gateway's takeover worker** (`gateway/src/takeover.js`),

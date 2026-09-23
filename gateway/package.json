@@ -1,6 +1,6 @@
 {
   "name": "jibo-gateway",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "ClaudeOver gateway: LAN Claude service + Jibo takeover (ROM) worker",
   "main": "src/server.js",
   "private": true,

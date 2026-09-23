@@ -4,7 +4,7 @@
 |---|---|
 | skill (`claude/`) | **0.2.0** (ClaudeOver menu tile) |
 | `claude/gateway_client.js` | 0.2.0. A copy of `gateway/client/gateway_client.js`; the tests check they're identical. |
-| `deploy.sh` | 0.3.0 |
+| `deploy.sh` | 0.3.1 |
 | `tools/register.js` | 0.2.1 |
 | `test/harness.js` | 0.2.0 |
 
@@ -25,7 +25,7 @@ rejected) and exits. Jibo is never left stuck on the panel.
 The skill still has a `launch.rule` ("ask Claude…") for when voice launch of
 community skills works on BEam/5x1. It doesn't work today.
 
-## Deploy (from the gateway host, Jibo in normal mode)
+## Deploy (from the linux box, Jibo in normal mode)
 
 ```bash
 cd ~/ClaudeOver/skill

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy.sh v0.3.0 - push the ClaudeOver skill (@be/claude) to Jibo. Run from the LAPTOP.
+# deploy.sh v0.3.1 - push the ClaudeOver skill (@be/claude) to Jibo. Run on the LINUX BOX.
 #
 #   ./deploy.sh install     copy skill + register (lazySkills, menu tile, icon); then reboot Jibo
 #   ./deploy.sh code        copy index.js only (hot-reloads on next "ask Claude", no reboot)
@@ -12,7 +12,7 @@
 # one password prompt ("jibo"). Tip: `ssh-copy-id root@$JIBO_HOST` to skip it.
 set -euo pipefail
 
-VERSION=0.3.0
+VERSION=0.3.1
 JIBO_HOST=${JIBO_HOST:-192.168.20.40}
 BE=${JIBO_BE:-/opt/jibo/Jibo/Skills/@be/be}   # override only for local testing
 DEST=$BE/skills/claude

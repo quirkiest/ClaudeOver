@@ -1,4 +1,4 @@
-# ClaudeOver gateway (jibo-gateway) v0.2.0
+# ClaudeOver gateway (jibo-gateway) v0.2.1
 
 This is a LAN service in Docker. It does two jobs:
 
@@ -46,24 +46,57 @@ Every error body carries a speakable `reply`/`esml` too.
 - If the ROM session drops, `rom-control` reconnects and the wake word is re-armed.
 - Gateway shutdown (container stop or restart) releases Jibo immediately.
 
-## Install on the gateway host (Ubuntu laptop, 192.168.20.26)
+## Install on the linux box (clone and run)
+
+Terms used throughout: **linux box** means the always-on gateway host
+(`192.168.20.26`), **mac** means Waz's laptop, and **Jibo** is the robot
+(`192.168.20.40`).
+
+`gateway/` is the self-contained container folder: Dockerfile, compose file,
+`.env`, and a `data/` volume. Everything runs from a clone of the repo.
 
 ```bash
-# Docker (skip if `docker compose version` works)
-sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2
-sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # re-login
+# one-off: Docker (skip if `docker compose version` works; Compose >= 2.20 needed for the root compose file)
+sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 git
+sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # then log out and back in
 
-cd ~/ClaudeOver/gateway          # or wherever the repo is cloned
-mkdir -p data
-cp .env.example .env && chmod 600 .env
-sed -i "s/^GATEWAY_TOKEN=.*/GATEWAY_TOKEN=$(openssl rand -hex 24)/" .env
-read -rsp "API key: " K && sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=$K|" .env && unset K; echo
-docker compose up -d --build && docker compose logs -f     # "jibo-gateway v0.2.0 listening"
+git clone git@github.com:<you>/ClaudeOver.git ~/ClaudeOver && cd ~/ClaudeOver
+./gateway/setup.sh --import ~/jibo-gateway/.env   # keeps the existing key + token (or plain ./gateway/setup.sh)
+docker compose up -d --build                      # from the repo root or from gateway/
+docker compose logs -f                            # "jibo-gateway v0.2.1 listening"
 ```
+
+`setup.sh` (safe to re-run) does the following:
+
+- creates `.env` from `.env.example` (mode 600), then adds any keys introduced by
+  a newer `.env.example`
+- generates `GATEWAY_TOKEN`, or imports it together with `ANTHROPIC_API_KEY`
+  from an older `.env`
+- prompts for the API key, with input hidden
+- detects this host's LAN IP (the route towards Jibo) and uses it for
+  `BIND_ADDR`, fixing a stale IP after a DHCP change (`--reset-ip` forces this)
+- merges Jibo, this host and the Docker bridge address into `ALLOW_IPS`
+- creates `data/`
+
+It doesn't start anything.
+
+### Update loop
+
+```bash
+cd ~/ClaudeOver && git pull
+./gateway/setup.sh                 # only needed if .env.example gained keys
+docker compose up -d --build       # rebuilds only if gateway/ changed
+./skill/deploy.sh code             # if skill/ changed (install + reboot if the tile/rule changed)
+```
+
+The compose project is named `jibo` both at the root and in `gateway/`, the same
+name as the old `~/jibo-gateway`. The first `up` from the clone replaces the old
+container in place. Delete `~/jibo-gateway` after that.
 
 ## Test
 
 ```bash
+cd ~/ClaudeOver/gateway
 TOKEN=$(grep ^GATEWAY_TOKEN .env | cut -d= -f2)
 curl -s http://192.168.20.26:8765/version; echo
 curl -s http://192.168.20.26:8765/v1/ask -H "Authorization: Bearer $TOKEN" \
@@ -91,14 +124,14 @@ end-to-end tests against a fake Anthropic API.
   on screen), ROM connects but nothing works.
 - **Don't run `bridge/jibo_claude.js` at the same time.** Two ROM clients will fight.
 
-## Laptop as an always-on server
+## Linux box as an always-on server
 
 ```bash
 sudo sed -i 's/^#\?HandleLidSwitch=.*/HandleLidSwitch=ignore/; s/^#\?HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=ignore/' /etc/systemd/logind.conf
 sudo systemctl restart systemd-logind      # + Settings → Power → Automatic Suspend: Off
 ```
 
-Reserve `192.168.20.26` for the laptop in the router's DHCP settings.
+Reserve `192.168.20.26` for the linux box in the router's DHCP settings.
 
 ## Security
 
@@ -119,6 +152,8 @@ if they differ), plus this README's title.
 | File | Version |
 |---|---|
 | `src/server.js` | 0.2.0 |
+| `setup.sh` | 0.1.0 (new in 0.2.1) |
+| `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.1 |
 | `src/takeover.js` | 0.2.0 (new) |
 | `client/gateway_client.js` | 0.2.0 (adds `takeover()` and `--takeover` CLI) |
 | `test/smoke.js` / `test/takeover.test.js` | 0.2.0 |

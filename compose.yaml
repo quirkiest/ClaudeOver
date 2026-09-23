@@ -1,0 +1,8 @@
+# ClaudeOver - repo-root compose entry point (v0.2.1).
+# Lets you run everything from the clone root:
+#   docker compose up -d --build     docker compose logs -f     docker compose down
+# The real definition (Dockerfile, .env, data/) lives in gateway/ - running
+# `docker compose` inside gateway/ works identically. Needs Compose >= 2.20.
+name: jibo          # same project as gateway/compose.yaml - never run both under different names
+include:
+  - gateway/compose.yaml
