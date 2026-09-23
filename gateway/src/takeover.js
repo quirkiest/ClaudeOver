@@ -52,7 +52,9 @@ const DEFAULTS = {
   screenUrl: '',            // where Jibo fetches the image screen (set by server.js)
   sessionId: 'takeover',
   debug: false,             // log every raw ROM event + subscription result (TAKEOVER_DEBUG=1)
-  releaseMs: 2000,          // wait this long for Jibo to ack the clean ROM close
+  releaseMs: 2000,
+  recoveryMs: 3000,         // ACO recoveryTimeout sent to Jibo (rom-control default 20000); 0 = leave rom-control's
+  keepAliveMs: 10000,       // ACO keepAliveTimeout (rom-control default, unchanged)          // wait this long for Jibo to ack the clean ROM close
   logText: false,           // include heard text in 'takeover heard' log lines (LOG_TRANSCRIPTS=1)
 };
 
@@ -130,6 +132,7 @@ class Takeover extends EventEmitter {
       return this._set('off', 'error: ' + e.message);
     }
     this.client = client;
+    this._tuneAco(client);
     this._wire(client);
     this._timers.connect = setTimeout(() => {
       if (this.state === 'starting') { this.deps.log('error', 'takeover connect timeout'); this._teardown('error: connect timeout'); }
@@ -362,6 +365,36 @@ class Takeover extends EventEmitter {
     this._set('off', reason);
     this._releasing = c ? this._release(c) : Promise.resolve();
     return this._releasing;
+  }
+
+  /**
+   * rom-control registers with Jibo (POST /request "aco") using hard-coded
+   * keepAliveTimeout 10 s / recoveryTimeout 20 s. recoveryTimeout is most likely
+   * how long Jibo holds the remote session open waiting for the client to come
+   * back, keeping native Jibo (and "Hey Jibo") suppressed after we leave. Our own
+   * reconnect doesn't need that grace, so it is shortened (TAKEOVER_RECOVERY_MS).
+   */
+  _tuneAco (client) {
+    const conn = client && client._conn;
+    if (!conn || typeof conn._postAco !== 'function' || !this.cfg.recoveryMs) return;
+    const self = this;
+    const mod = require('node:http');
+    conn._postAco = function () {
+      const body = JSON.stringify({ aco: {
+        version: '1.0', sourceId: conn.appId, commandSet: conn.commandSet, streamSet: conn.streamSet,
+        keepAliveTimeout: self.cfg.keepAliveMs, recoveryTimeout: self.cfg.recoveryMs,
+        remoteConfig: { hideVisualCue: false, inactivityTimeout: 3600000 },
+      } });
+      if (self.cfg.debug) self.deps.log('info', 'aco', { keepAliveTimeout: self.cfg.keepAliveMs, recoveryTimeout: self.cfg.recoveryMs });
+      return new Promise((resolve, reject) => {
+        const req = mod.request({ host: conn.host, port: conn.port, path: '/request', method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
+          let d = ''; res.on('data', (x) => { d += x; }); res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { resolve(d); } });
+        });
+        req.on('error', reject);
+        req.end(body);
+      });
+    };
   }
 
   /**

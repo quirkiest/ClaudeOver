@@ -1,4 +1,4 @@
-# ClaudeOver — Claude Handoff v0.7.6
+# ClaudeOver — Claude Handoff v0.7.7
 
 Supersedes `claude-handoff-v6.3.md` (kept in this folder for history: dead
 ends, BEam internals, the gate results). Written 2026-09-23.
@@ -24,7 +24,8 @@ Never say "the laptop"; it's ambiguous.
   The suspect is rom-control's `destroy()`, which does `ws.terminate()` with no close frame, so
   Jibo never sees the session end. **0.2.5** (deployed) closes the ROM session cleanly (code 1000
   acknowledged), but Jibo still took **about 3 min** to hear "Hey Jibo" again. **0.2.6** (built, not
-  deployed) also closes the :8088 wake-word stream cleanly (§9). With 0.2.5, double pat also stopped
+  deployed) also closes the :8088 wake-word stream cleanly (§9). **0.2.6 result: about 1 min.**
+  **0.2.7** (built) shortens the ACO `recoveryTimeout` from 20 s to 3 s. With 0.2.5, double pat also stopped
   working in one run, probably because Jibo was carrying stale sessions from earlier unclean
   exits. Re-test it on a freshly rebooted Jibo with `TAKEOVER_DEBUG=1`.
 
@@ -61,7 +62,7 @@ sessions, speech shaping, end detection and local time/date answers.
 
 | Path | Version | State |
 |---|---|---|
-| `gateway/` | 0.2.6 | 0.2.5 is running. 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
+| `gateway/` | 0.2.7 | 0.2.6 is running (post-exit deafness down to about 1 min). 0.2.7 = ACO `recoveryTimeout` 3 s. 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
 | `skill/claude` | 0.2.2 | **Installed and working** (tile after Bad Apple, original speech-bubble-and-spark icon; source `skill/assets/claude-icon.svg`). Waz may swap in his own icon later, which must be a 300×300 PNG with a **transparent** background. 7 harness tests. Strict ES2015. |
 | `skill/deploy.sh` | 0.3.2 | Two-stage install (`install` = skill + lazySkills; `tile` = tile + icon). `umask 022`, `chmod -R a+rX`, and a permission check after every action. New `check`, `fixperms` and `untile` commands. `test/deploy.test.sh`: 19 checks against a mock tree with umask 077. |
 | `skill/tools/register.js` | 0.3.0 | Writes files in place (keeps the owner and mode) and forces them world-readable. Backups copy the original's mode. Refuses to add anything to an unreadable tree. |
@@ -160,5 +161,11 @@ delete `~/jibo-gateway`.
 - **0.2.6:** the wake-word stream (`ws://jibo:8088/simple_port`, rom-control's `WakewordWatcher`) was also
   `terminate()`d, and it's stopped and re-armed on **every turn**, so half-open sockets pile up on
   Jibo. `_stopWake()` now closes it cleanly, both per turn and in `_release()`.
-- **If 0.2.6 still takes about 3 min:** look for an explicit end-session command in the ROM protocol,
+- **0.2.6 result:** about 1 min (down from about 3). Double pat: the second pat didn't register (needs the
+  `headTouch` debug log). Swipe down worked.
+- **0.2.7:** rom-control's `_postAco()` sends `POST http://jibo:8160/request` with `{aco:{keepAliveTimeout:10000,
+  recoveryTimeout:20000, remoteConfig:{inactivityTimeout:3600000}}}`. `recoveryTimeout` is most likely Jibo's
+  grace period for the client to reconnect. `_tuneAco()` replaces `_postAco` to send `TAKEOVER_RECOVERY_MS`
+  (default 3000) instead.
+- **If there's still a delay:** look for an explicit end-session command in the ROM protocol,
   or at whether the `Speech` subscription (`Listen: true`) needs to be unsubscribed before closing.

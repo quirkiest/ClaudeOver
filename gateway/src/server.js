@@ -56,6 +56,7 @@ const CFG = {
   toIdleMin:     Number(env('TAKEOVER_IDLE_MIN', 30)),
   toStartDelay:  Number(env('TAKEOVER_START_DELAY_MS', 2500)),
   toScreen:      env('TAKEOVER_SCREEN', 'image'),
+  toRecoveryMs:  Number(env('TAKEOVER_RECOVERY_MS', 3000)),
   // URL Jibo fetches the Claude-mode screen from. Default: this gateway's LAN address.
   screenUrl:     env('SCREEN_URL', '') || ((env('BIND_ADDR', '') && env('BIND_ADDR', '') !== '0.0.0.0')
     ? `http://${env('BIND_ADDR', '')}:${env('HOST_PORT', '8765')}/screen.svg` : ''),
@@ -390,7 +391,7 @@ const takeover = new Takeover({
   createClient: (opts) => { const { Client } = require('rom-control'); return new Client(opts); },
 }, {
   jiboHost: CFG.jiboHost, listenMs: CFG.listenMs, idleMinutes: CFG.toIdleMin,
-  startDelayMs: CFG.toStartDelay, screen: CFG.toScreen, screenUrl: CFG.screenUrl, debug: CFG.toDebug, logText: CFG.logText,
+  startDelayMs: CFG.toStartDelay, screen: CFG.toScreen, screenUrl: CFG.screenUrl, recoveryMs: CFG.toRecoveryMs, debug: CFG.toDebug, logText: CFG.logText,
 });
 
 async function handleTakeover(req, res) {

@@ -31,6 +31,7 @@ class FakeClient extends EventEmitter {
     this._conn = new EventEmitter();
     this._conn.ws = new EventEmitter();
     this._conn.subscribeHeadTouch = () => Promise.resolve({ ResponseCode: 200 });
+    this._conn._postAco = () => Promise.resolve({});
   }
   connect () { setTimeout(() => this.emit('ready'), 5); return Promise.resolve(); }
   destroy () { this.destroyed = true; this.log.push('destroy'); }
@@ -366,6 +367,24 @@ async function test (name, fn) {
     await t.shutdown();                                       // release
     assert.equal(ws.closed, 1000); assert.equal(ws.terminated, false);
     assert.equal(c._conn._wakewordWatcher, null);
+  });
+
+  await test('ACO: recoveryTimeout shortened (default 3000) in the POST /request to Jibo', async () => {
+    const http = require('node:http');
+    let got = null;
+    const srv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { got = { path: req.url, body: JSON.parse(b) }; res.end('{"ok":true}'); }); });
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    const { t, client } = make({ recoveryMs: 3000, keepAliveMs: 10000 });
+    t.start(); await sleep(60);
+    const conn = client()._conn;
+    assert.equal(typeof conn._postAco, 'function', 'wrapper installed');
+    conn.host = '127.0.0.1'; conn.port = srv.address().port; conn.appId = 'x'; conn.commandSet = ['Say']; conn.streamSet = ['HotWord'];
+    await conn._postAco();
+    srv.close();
+    assert.equal(got.path, '/request');
+    assert.equal(got.body.aco.recoveryTimeout, 3000); assert.equal(got.body.aco.keepAliveTimeout, 10000);
+    assert.deepEqual(got.body.aco.commandSet, ['Say']);
+    await t.shutdown();
   });
 
   await test('shutdown releases Jibo immediately', async () => {

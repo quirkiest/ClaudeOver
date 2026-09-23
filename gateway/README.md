@@ -1,4 +1,4 @@
-# ClaudeOver gateway (jibo-gateway) v0.2.6
+# ClaudeOver gateway (jibo-gateway) v0.2.7
 
 This is a LAN service in Docker. It does two jobs:
 
@@ -68,7 +68,10 @@ Every error body carries a speakable `reply`/`esml` too.
   Claude mode (0.2.4 bug). The logs show `rom session closed cleanly` or `rom close not acked, terminating`.
   **0.2.6:** the wake-word stream (Jibo :8088 `/simple_port`) is also closed cleanly, both per turn and on
   exit. rom-control terminates it, and it's stopped and re-armed on every turn. With 0.2.5, Jibo
-  still took about 3 minutes to hear "Hey Jibo" again after a clean ROM close.
+  still took about 3 minutes to hear "Hey Jibo" again after a clean ROM close. With 0.2.6 it took about 1 minute.
+  **0.2.7:** rom-control registers with Jibo (`POST /request` "aco") using a hard-coded `recoveryTimeout: 20000`,
+  which is probably how long Jibo holds the session open for the client to come back. The gateway
+  now sends `TAKEOVER_RECOVERY_MS` instead (default 3000; 0 = rom-control's 20000).
 - Gateway shutdown (container stop or restart) releases Jibo the same way, then exits.
 
 ## Install on the linux box (clone and run)
@@ -88,7 +91,7 @@ sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # then log
 git clone git@github.com:<you>/ClaudeOver.git ~/ClaudeOver && cd ~/ClaudeOver
 ./gateway/setup.sh --import ~/jibo-gateway/.env   # keeps the existing key + token (or plain ./gateway/setup.sh)
 docker compose up -d --build                      # from the repo root or from gateway/
-docker compose logs -f                            # "jibo-gateway v0.2.6 listening"
+docker compose logs -f                            # "jibo-gateway v0.2.7 listening"
 ```
 
 `setup.sh` (safe to re-run) does the following:
@@ -133,7 +136,7 @@ GATEWAY_TOKEN=$TOKEN GATEWAY_HOST=192.168.20.26 node client/gateway_client.js --
 docker compose logs -f | grep takeover
 ```
 
-**Offline tests** (no key, no robot): `npm install && npm test`. This runs 30
+**Offline tests** (no key, no robot): `npm install && npm test`. This runs 31
 takeover-worker tests against a fake rom-control client and 22 HTTP
 end-to-end tests against a fake Anthropic API.
 
@@ -176,10 +179,10 @@ if they differ), plus this README's title.
 
 | File | Version |
 |---|---|
-| `src/server.js` | 0.2.5 (shutdown waits for the clean ROM close). 0.2.4: (takeover exit safety net `[[EXIT]]`; no `claude,` prefix stripping in takeover; `GET /screen.svg`) |
+| `src/server.js` | 0.2.7 (`TAKEOVER_RECOVERY_MS`). 0.2.5: (shutdown waits for the clean ROM close). 0.2.4: (takeover exit safety net `[[EXIT]]`; no `claude,` prefix stripping in takeover; `GET /screen.svg`) |
 | `src/screen.js` | 0.2.4 (new: Claude-mode screen SVG + short text fallback) |
 | `setup.sh` | 0.1.0 (new in 0.2.1) |
 | `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.4 (`HOST_PORT` for the screen URL) |
-| `src/takeover.js` | 0.2.6 (clean close of the :8088 wake-word stream, `_stopWake()`). 0.2.5: clean ROM close on exit, `_release()`. 0.2.4: fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
+| `src/takeover.js` | 0.2.7 (ACO `recoveryTimeout` via `_tuneAco()`). 0.2.6: (clean close of the :8088 wake-word stream, `_stopWake()`). 0.2.5: clean ROM close on exit, `_release()`. 0.2.4: fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
 | `client/gateway_client.js` | 0.2.0 (adds `takeover()` and `--takeover` CLI) |
-| `test/smoke.js` / `test/takeover.test.js` | 0.2.3 (22 + 30 tests) |
+| `test/smoke.js` / `test/takeover.test.js` | 0.2.4 (22 + 31 tests) |
