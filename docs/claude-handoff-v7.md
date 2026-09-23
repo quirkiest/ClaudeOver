@@ -1,4 +1,4 @@
-# ClaudeOver — Claude Handoff v0.7.3
+# ClaudeOver — Claude Handoff v0.7.5
 
 Supersedes `claude-handoff-v6.3.md` (kept in this folder for history: dead
 ends, BEam internals, the gate results). Written 2026-09-23.
@@ -18,8 +18,12 @@ Never say "the laptop"; it's ambiguous.
 - A tap gives "Switching to Claude mode", then `POST /v1/takeover`, then gateway `on` in about 6 s.
 - The pat, hold and swipe exits are verified.
 - The first tap failed ("thinking cap") only because the gateway container was down.
-- **Gateway 0.2.4 is built, not yet deployed.** It fixes the "Claude off" voice exit and
-  reformats the Claude-mode screen (§8).
+- **Gateway 0.2.4 and skill 0.2.2 are deployed and verified** (2026-09-23 night): the new icon,
+  the formatted `/screen.svg` screen, and the "Claude off" voice exit all work on Jibo (§8).
+- **Bug found in 0.2.4:** after leaving Claude mode, Jibo doesn't respond to "Hey Jibo".
+  The suspect is rom-control's `destroy()`, which does `ws.terminate()` with no close frame, so
+  Jibo never sees the session end. **0.2.5** (built, not yet deployed) sends a clean close (1000)
+  and waits for Jibo to acknowledge it (§9).
 
 Repo: `~/GitHub/ClaudeOver` on the mac (Waz commits and pushes), and
 `~/ClaudeOver` on the linux box (a clone over SSH with the deploy-key alias
@@ -54,8 +58,8 @@ sessions, speech shaping, end detection and local time/date answers.
 
 | Path | Version | State |
 |---|---|---|
-| `gateway/` | 0.2.4 | 0.2.3 is running and verified. 0.2.4 = fuzzy voice exit + `[[EXIT]]` safety net + `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
-| `skill/claude` | 0.2.2 | **0.2.1 installed and working** (tile after Bad Apple). 0.2.2 = new original icon (speech bubble + spark, source `skill/assets/claude-icon.svg`); deploy with `install`, then `tile`, then reboot. 7 harness tests. Strict ES2015. |
+| `gateway/` | 0.2.5 | 0.2.4 is running and verified, except that voice doesn't come back after exit. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
+| `skill/claude` | 0.2.2 | **Installed and working** (tile after Bad Apple, original speech-bubble-and-spark icon; source `skill/assets/claude-icon.svg`). Waz may swap in his own icon later, which must be a 300×300 PNG with a **transparent** background. 7 harness tests. Strict ES2015. |
 | `skill/deploy.sh` | 0.3.2 | Two-stage install (`install` = skill + lazySkills; `tile` = tile + icon). `umask 022`, `chmod -R a+rX`, and a permission check after every action. New `check`, `fixperms` and `untile` commands. `test/deploy.test.sh`: 19 checks against a mock tree with umask 077. |
 | `skill/tools/register.js` | 0.3.0 | Writes files in place (keeps the owner and mode) and forces them world-readable. Backups copy the original's mode. Refuses to add anything to an unreadable tree. |
 | `bridge/jibo_claude.js` | 0.4.0 | Legacy/fallback. **Never run alongside the takeover.** |
@@ -69,23 +73,18 @@ delete `~/jibo-gateway`.
 
 ## 4. Next steps
 
-1. Deploy gateway 0.2.4: `git pull && docker compose up -d --build`. Check
-   `/version`, which should show `0.2.4`. Note that this drops takeover, so tap the
-   tile again.
-2. Check that the new screen renders on Jibo. If it's blank or broken, set
-   `TAKEOVER_SCREEN=text` in `gateway/.env` and run `docker compose up -d`.
-3. Test "Hey Jibo … Claude off". Watch for `takeover heard {words, off}` in the logs.
-   Add `LOG_TRANSCRIPTS=1` to see the actual text.
-4. Idle timeout test (`TAKEOVER_IDLE_MIN=1`).
-5. Docker autostart on the linux box. `systemctl is-enabled docker` returned
-   `not-found`, so it's probably a **snap** install. Check with `snap services docker`.
+1. Idle timeout test (`TAKEOVER_IDLE_MIN=1`).
+2. Docker autostart on the linux box: `systemctl is-enabled docker` returned `not-found`,
+   so it's probably a snap install. Check with `snap services docker`.
+3. Optional: delete the `*.broken` files on Jibo, and `~/jibo-gateway` on the linux box.
+4. Optional: Waz's own tile icon (300×300 PNG, transparent background). Run `install`, then `tile`, then reboot.
 
 ## 5. Known unknowns and risks
 
 | Unknown | How it shows up | Fallback |
 |---|---|---|
 | Menu mapping: **resolved**. `main-menu/index.js` `redirectToSkill(dest)` → `@be/${dest}` with `nlu {intent:'menu', entities:{domain}}`. There's no filtering; the tile list is `main-menu-verbal.json` verbatim | — | — |
-| `display.showText` is a **single line with no wrapping** (confirmed; the 0.2.3 text ran off the screen). `display.showImage(url)` with SVG is untested on Jibo | Blank screen in 0.2.4 | `TAKEOVER_SCREEN=text` (short line) or `eye` |
+| `display.showText` is a **single line with no wrapping**. `display.showImage(url)` with an SVG **works** (0.2.4 verified) | — | `TAKEOVER_SCREEN=text` or `eye` if needed |
 | Head-touch cadence: **resolved**. `onHeadTouch` arrives only while touched (one per pat, a stream every 50–210 ms while held), with **no release event** | — | Gap-based detection in 0.2.3 (`touchGapMs` 280, `doublePatMs` 1500, `holdMs` 2000) |
 | ROM grabbing the foreground while the skill closes | Takeover never becomes `on` (connect timeout) | Raise `TAKEOVER_START_DELAY_MS` |
 | rom-control version | The old bridge on the linux box used an older build; the gateway pins `^2.0.2` (API checked: `content`, `hotword`, `headTouch.activePads`, `gesture.isSwipe/direction`, `display.showText`) | Pin whichever version the bridge ran |
@@ -141,3 +140,18 @@ delete `~/jibo-gateway`.
   - `TAKEOVER_SCREEN=image` is the new default, with `text` (one short line) and `eye` as fallbacks.
   - `HOST_PORT` in `compose.yaml` builds the default `SCREEN_URL`.
 - Tests: 27 worker tests + 22 HTTP tests.
+
+## 9. Gateway 0.2.5: Jibo deaf after Claude mode (2026-09-23)
+
+- **Symptom:** after any exit (pat, hold, swipe or voice), native Jibo doesn't respond to "Hey Jibo".
+- **Suspect:** `rom-control` `destroy()` → `disconnect()` → `ws.terminate()` drops the TCP connection
+  with no WebSocket close frame. Jibo's ROM server likely keeps the remote session, and with it the
+  suppressed native listening, until an inactivity timeout. `CLOSE.Inactivity` is 4003.
+  The old bridge mostly exited via Jibo's own head-touch exit (code 4000, closed by Jibo), so it never hit this.
+- **Fix:** `Takeover._release()` stops the wakeword watcher and sets `_destroyed` / `autoReconnect=false`
+  so the close doesn't trigger a reconnect. It then sends `ws.close(1000)`, waits for Jibo to
+  acknowledge (at most `releaseMs`, 2 s), and only then calls `destroy()`. Server shutdown awaits the
+  same release. The logs show `rom session closed cleanly {code}`.
+- **If Jibo is still deaf with 0.2.5:** check whether he recovers on his own after N minutes
+  (that would be the inactivity timeout). Then look at the ROM protocol for an explicit session-end
+  command.

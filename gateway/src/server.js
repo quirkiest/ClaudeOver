@@ -469,10 +469,11 @@ server.listen(CFG.port, CFG.host, () => {
 
 function shutdown(sig) {
   log('info', `shutting down (${sig})`);
-  takeover.shutdown();
   saveSessions();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 3000).unref();
+  setTimeout(() => process.exit(0), 5000).unref();
+  // Let the takeover close its ROM session cleanly first, or Jibo stays deaf (0.2.5).
+  Promise.race([takeover.shutdown(), new Promise((r) => setTimeout(r, 3000))])
+    .then(() => server.close(() => process.exit(0)));
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));

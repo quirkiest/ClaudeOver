@@ -52,6 +52,7 @@ const DEFAULTS = {
   screenUrl: '',            // where Jibo fetches the image screen (set by server.js)
   sessionId: 'takeover',
   debug: false,             // log every raw ROM event + subscription result (TAKEOVER_DEBUG=1)
+  releaseMs: 2000,          // wait this long for Jibo to ack the clean ROM close
   logText: false,           // include heard text in 'takeover heard' log lines (LOG_TRANSCRIPTS=1)
 };
 
@@ -358,12 +359,35 @@ class Takeover extends EventEmitter {
     this._touchStarts = [];
     this._lastTouchAt = 0;
     this._touchStartAt = 0;
-    if (c) { try { c.destroy ? c.destroy() : c.disconnect(); } catch (e) { /* no-op */ } }
     this._set('off', reason);
+    this._releasing = c ? this._release(c) : Promise.resolve();
+    return this._releasing;
   }
 
-  /** For process shutdown: release Jibo quickly, no goodbye. */
-  shutdown () { if (this.state !== 'off') this._teardown('gateway shutdown'); }
+  /**
+   * Hand Jibo back properly. rom-control's destroy() does ws.terminate(): a TCP
+   * kill with no WebSocket close frame. Jibo then never learns the remote session
+   * ended and his native "Hey Jibo" stays suppressed (v0.2.4 bug). So: stop the
+   * wakeword watcher, send a clean close (1000) and wait for Jibo to ack it
+   * (max releaseMs), and only then destroy.
+   */
+  async _release (c) {
+    const conn = c._conn;
+    const ws = conn && conn.ws;
+    try { c.audio && c.audio.stopWakeword(); } catch (e) { /* no-op */ }
+    if (conn) { conn._destroyed = true; conn.autoReconnect = false; } // no auto-reconnect on this close
+    if (ws && ws.readyState === 1 && typeof ws.close === 'function') {
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => { this.deps.log('info', 'rom close not acked, terminating'); resolve(); }, this.cfg.releaseMs);
+        ws.once('close', (code) => { clearTimeout(timer); this.deps.log('info', 'rom session closed cleanly', { code }); resolve(); });
+        try { ws.close(1000, 'ClaudeOver off'); } catch (e) { clearTimeout(timer); resolve(); }
+      });
+    }
+    try { c.destroy ? c.destroy() : c.disconnect(); } catch (e) { /* no-op */ }
+  }
+
+  /** For process shutdown: release Jibo quickly (clean close, max releaseMs), no goodbye. */
+  shutdown () { return this.state !== 'off' ? this._teardown('gateway shutdown') : (this._releasing || Promise.resolve()); }
 }
 
 module.exports = { Takeover, OFF_RE, isOffCommand, normalise, DEFAULTS, CLOSE };

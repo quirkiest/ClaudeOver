@@ -327,10 +327,34 @@ async function test (name, fn) {
     t.shutdown();
   });
 
+  await test('release: clean WebSocket close (1000) acked, then destroy; no terminate first', async () => {
+    const logs = [];
+    const { t, client } = make({}, [], { log: (l, m, o) => logs.push([m, o]) });
+    t.start(); await sleep(60);
+    const ws = client()._conn.ws; ws.readyState = 1;
+    let closedWith = null;
+    ws.close = (code) => { closedWith = code; assert.ok(!client().destroyed, 'destroy must wait for close'); setTimeout(() => ws.emit('close', code), 10); };
+    const p = t.shutdown();
+    assert.equal(t.state, 'off');
+    await p;
+    assert.equal(closedWith, 1000); assert.ok(client().destroyed);
+    assert.equal(client()._conn.autoReconnect, false);
+    assert.ok(logs.some((l) => l[0] === 'rom session closed cleanly'));
+  });
+
+  await test('release: Jibo never acks close → destroy after releaseMs', async () => {
+    const { t, client } = make({ releaseMs: 50 });
+    t.start(); await sleep(60);
+    const ws = client()._conn.ws; ws.readyState = 1; ws.close = () => {};
+    const p = t.shutdown();
+    await sleep(20); assert.ok(!client().destroyed);
+    await p; assert.ok(client().destroyed);
+  });
+
   await test('shutdown releases Jibo immediately', async () => {
     const { t, client } = make();
     t.start(); await sleep(60);
-    t.shutdown();
+    await t.shutdown();
     assert.equal(t.state, 'off'); assert.ok(client().destroyed);
   });
 

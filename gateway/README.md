@@ -1,4 +1,4 @@
-# ClaudeOver gateway (jibo-gateway) v0.2.4
+# ClaudeOver gateway (jibo-gateway) v0.2.5
 
 This is a LAN service in Docker. It does two jobs:
 
@@ -62,7 +62,11 @@ Every error body carries a speakable `reply`/`esml` too.
   - `POST /v1/takeover {off}`
 - A stop requested mid-answer lets the answer finish first, then says goodbye.
 - If the ROM session drops, `rom-control` reconnects and the wake word is re-armed.
-- Gateway shutdown (container stop or restart) releases Jibo immediately.
+- **Handing Jibo back (0.2.5):** every exit sends a clean WebSocket close (1000) and waits up to 2 s
+  for Jibo to acknowledge it before destroying the client. rom-control's `destroy()` does
+  `ws.terminate()` (a TCP kill with no close frame), which left Jibo not answering "Hey Jibo" after
+  Claude mode (0.2.4 bug). The logs show `rom session closed cleanly` or `rom close not acked, terminating`.
+- Gateway shutdown (container stop or restart) releases Jibo the same way, then exits.
 
 ## Install on the linux box (clone and run)
 
@@ -81,7 +85,7 @@ sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # then log
 git clone git@github.com:<you>/ClaudeOver.git ~/ClaudeOver && cd ~/ClaudeOver
 ./gateway/setup.sh --import ~/jibo-gateway/.env   # keeps the existing key + token (or plain ./gateway/setup.sh)
 docker compose up -d --build                      # from the repo root or from gateway/
-docker compose logs -f                            # "jibo-gateway v0.2.4 listening"
+docker compose logs -f                            # "jibo-gateway v0.2.5 listening"
 ```
 
 `setup.sh` (safe to re-run) does the following:
@@ -126,7 +130,7 @@ GATEWAY_TOKEN=$TOKEN GATEWAY_HOST=192.168.20.26 node client/gateway_client.js --
 docker compose logs -f | grep takeover
 ```
 
-**Offline tests** (no key, no robot): `npm install && npm test`. This runs 27
+**Offline tests** (no key, no robot): `npm install && npm test`. This runs 29
 takeover-worker tests against a fake rom-control client and 22 HTTP
 end-to-end tests against a fake Anthropic API.
 
@@ -169,10 +173,10 @@ if they differ), plus this README's title.
 
 | File | Version |
 |---|---|
-| `src/server.js` | 0.2.4 (takeover exit safety net `[[EXIT]]`; no `claude,` prefix stripping in takeover; `GET /screen.svg`) |
+| `src/server.js` | 0.2.5 (shutdown waits for the clean ROM close). 0.2.4: (takeover exit safety net `[[EXIT]]`; no `claude,` prefix stripping in takeover; `GET /screen.svg`) |
 | `src/screen.js` | 0.2.4 (new: Claude-mode screen SVG + short text fallback) |
 | `setup.sh` | 0.1.0 (new in 0.2.1) |
 | `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.4 (`HOST_PORT` for the screen URL) |
-| `src/takeover.js` | 0.2.4 (fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
+| `src/takeover.js` | 0.2.5 (clean ROM close on exit, `_release()`). 0.2.4: fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
 | `client/gateway_client.js` | 0.2.0 (adds `takeover()` and `--takeover` CLI) |
-| `test/smoke.js` / `test/takeover.test.js` | 0.2.1 (22 + 27 tests) |
+| `test/smoke.js` / `test/takeover.test.js` | 0.2.2 (22 + 29 tests) |
