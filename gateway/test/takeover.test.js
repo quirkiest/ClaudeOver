@@ -387,6 +387,16 @@ async function test (name, fn) {
     await t.shutdown();
   });
 
+  await test('double-tap screen → off; single tap or slow taps do nothing', async () => {
+    let r = make({ doubleTapMs: 200 });
+    r.t.start(); await sleep(60);
+    r.client().emit('gesture', { isTap: true, type: 'Tap' }); await sleep(250);
+    r.client().emit('gesture', { isTap: true, type: 'Tap' }); await sleep(20);
+    assert.equal(r.t.state, 'on', 'slow taps must not exit');
+    r.client().emit('gesture', { isTap: true, type: 'Tap' }); await sleep(60);
+    assert.equal(r.t.state, 'off'); assert.equal(r.t.reason, 'double tap');
+  });
+
   await test('shutdown releases Jibo immediately', async () => {
     const { t, client } = make();
     t.start(); await sleep(60);

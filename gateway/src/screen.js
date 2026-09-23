@@ -1,6 +1,6 @@
 'use strict';
 /**
- * screen.js v0.2.4 - the ClaudeOver "home" screen shown on Jibo while Claude
+ * screen.js v0.2.8 - the ClaudeOver "home" screen shown on Jibo while Claude
  * mode is on. Served by the gateway at GET /screen.svg and displayed with
  * rom-control display.showImage(url) (TAKEOVER_SCREEN=image).
  *
@@ -24,8 +24,8 @@ function homeSvg (o) {
   const v = esc(o.version);
   const rows = [
     ['Ask', '“Hey Jibo”, then your question'],
-    ['Exit', 'Pat my head twice, or hold it'],
-    ['', 'or swipe down, or say “Claude off”'],
+    ['Exit', 'Double-tap my screen, or swipe down'],
+    ['', 'or hold my head, or say “Claude off”'],
   ];
   const lines = rows.map((r, i) => {
     const y = 380 + i * 64;

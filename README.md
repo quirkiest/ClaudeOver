@@ -3,12 +3,12 @@
 Claude as a voice mode for a revived Jibo robot (BEam firmware + 5x1 server).
 
 Tap the **ClaudeOver** tile in Jibo's menu, and from then on every
-"Hey Jibo …" goes to Claude. **Pat his head twice** (or hold it, or swipe down) to get normal Jibo back.
+"Hey Jibo …" goes to Claude. **Double-tap his screen** (or swipe down, hold his head, or say "Claude off") to get normal Jibo back.
 
 | Component | Version | What it is |
 |---|---|---|
-| [`gateway/`](gateway/) | **0.2.7** | Docker service on the LAN. Holds the API key, talks to Claude, and runs the **takeover worker**: a ROM session to Jibo that handles wake word → speech → Claude → reply. |
-| [`skill/`](skill/) | **0.2.2** | On-robot BEam skill: the ClaudeOver menu tile. Tapping it asks the gateway to switch takeover on, then exits. |
+| [`gateway/`](gateway/) | **0.2.8** | Docker service on the LAN. Holds the API key, talks to Claude, and runs the **takeover worker**: a ROM session to Jibo that handles wake word → speech → Claude → reply. |
+| [`skill/`](skill/) | **0.2.3** | On-robot BEam skill: the ClaudeOver menu tile. Tapping it asks the gateway to switch takeover on, then exits. |
 | [`skill/deploy.sh`](skill/deploy.sh) | 0.3.2 | Pushes and registers the skill on Jibo from the linux box, in two stages (skill, then tile), with a permission check. |
 | [`bridge/`](bridge/) | 0.4.0 | The original ROM bridge (`jibo_claude.js`). It's superseded by the gateway's takeover worker and kept for reference. |
 | [`docs/`](docs/) | – | Handoff notes: history, dead ends, findings. |
@@ -28,7 +28,7 @@ Tap the **ClaudeOver** tile in Jibo's menu, and from then on every
                         ▼                                                 │ waits 2.5 s, then
                    normal Jibo ◀──────── disconnect ◀── OFF ◀──┐          ▼ opens ROM session
                                                                 │   "Hey Jibo" → on-robot ASR
-  OFF = double head pat · swipe down · "Claude off" · 30 min idle   → Claude → Jibo speaks
+  OFF = double-tap screen · swipe down · "Claude off" · 30 min idle   → Claude → Jibo speaks
 ```
 
 Why a takeover mode: on BEam 3.1.4 + 5x1, **voice launch rules for community
@@ -54,7 +54,7 @@ suspended. That's inherent to ROM. Turn it off to get them back.
    especially **Permissions**: Be runs as `jibo-skill`, so a root-only (600)
    file under `@be/be` means no eye.
 3. On Jibo: **Menu → ClaudeOver**, then "Hey Jibo, how far is Melbourne from London?"
-4. Double-pat his head to exit.
+4. Double-tap his screen to exit.
 
 **Update loop:** `git pull && docker compose up -d --build`, plus
 `./skill/deploy.sh code` if `skill/` changed.

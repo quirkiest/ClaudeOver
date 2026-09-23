@@ -1,4 +1,4 @@
-# ClaudeOver gateway (jibo-gateway) v0.2.7
+# ClaudeOver gateway (jibo-gateway) v0.2.8
 
 This is a LAN service in Docker. It does two jobs:
 
@@ -45,7 +45,10 @@ Every error body carries a speakable `reply`/`esml` too.
   override it with `SCREEN_URL`.
 - **Ways to exit:**
   - **swipe down** on the screen (✔ verified on Jibo)
-  - **double head pat**: two separate pats within 1.5 s (v0.2.3 fix; see below)
+  - **double-tap the screen**: two taps within 1.5 s (0.2.8; now the main touch exit)
+  - double head pat: two separate pats within 1.5 s. This is **unreliable**. The 0.2.7 debug log shows
+    that Jibo sends `onHeadTouch` only when the pad pattern *changes*, so a second pat on the same pad
+    produces no event at all. It works only when the pats land on different pads.
   - **head hold**: a continuous touch of 2 s or more
   - Jibo sends `onHeadTouch` **only while touched**: one event per pat, a stream every
     ~50–210 ms while held, and **no release event**. Touches are therefore split by
@@ -91,7 +94,7 @@ sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # then log
 git clone git@github.com:<you>/ClaudeOver.git ~/ClaudeOver && cd ~/ClaudeOver
 ./gateway/setup.sh --import ~/jibo-gateway/.env   # keeps the existing key + token (or plain ./gateway/setup.sh)
 docker compose up -d --build                      # from the repo root or from gateway/
-docker compose logs -f                            # "jibo-gateway v0.2.7 listening"
+docker compose logs -f                            # "jibo-gateway v0.2.8 listening"
 ```
 
 `setup.sh` (safe to re-run) does the following:
@@ -136,7 +139,7 @@ GATEWAY_TOKEN=$TOKEN GATEWAY_HOST=192.168.20.26 node client/gateway_client.js --
 docker compose logs -f | grep takeover
 ```
 
-**Offline tests** (no key, no robot): `npm install && npm test`. This runs 31
+**Offline tests** (no key, no robot): `npm install && npm test`. This runs 32
 takeover-worker tests against a fake rom-control client and 22 HTTP
 end-to-end tests against a fake Anthropic API.
 
@@ -180,9 +183,9 @@ if they differ), plus this README's title.
 | File | Version |
 |---|---|
 | `src/server.js` | 0.2.7 (`TAKEOVER_RECOVERY_MS`). 0.2.5: (shutdown waits for the clean ROM close). 0.2.4: (takeover exit safety net `[[EXIT]]`; no `claude,` prefix stripping in takeover; `GET /screen.svg`) |
-| `src/screen.js` | 0.2.4 (new: Claude-mode screen SVG + short text fallback) |
+| `src/screen.js` | 0.2.8 (exit text: double-tap). 0.2.4: (new: Claude-mode screen SVG + short text fallback) |
 | `setup.sh` | 0.1.0 (new in 0.2.1) |
 | `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.4 (`HOST_PORT` for the screen URL) |
-| `src/takeover.js` | 0.2.7 (ACO `recoveryTimeout` via `_tuneAco()`). 0.2.6: (clean close of the :8088 wake-word stream, `_stopWake()`). 0.2.5: clean ROM close on exit, `_release()`. 0.2.4: fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
+| `src/takeover.js` | 0.2.8 (double-tap screen exit, `_onTap()`). 0.2.7: (ACO `recoveryTimeout` via `_tuneAco()`). 0.2.6: (clean close of the :8088 wake-word stream, `_stopWake()`). 0.2.5: clean ROM close on exit, `_release()`. 0.2.4: fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
 | `client/gateway_client.js` | 0.2.0 (adds `takeover()` and `--takeover` CLI) |
-| `test/smoke.js` / `test/takeover.test.js` | 0.2.4 (22 + 31 tests) |
+| `test/smoke.js` / `test/takeover.test.js` | 0.2.5 (22 + 32 tests) |

@@ -1,4 +1,4 @@
-# ClaudeOver — Claude Handoff v0.7.7
+# ClaudeOver — Claude Handoff v0.7.8
 
 Supersedes `claude-handoff-v6.3.md` (kept in this folder for history: dead
 ends, BEam internals, the gate results). Written 2026-09-23.
@@ -25,7 +25,11 @@ Never say "the laptop"; it's ambiguous.
   Jibo never sees the session end. **0.2.5** (deployed) closes the ROM session cleanly (code 1000
   acknowledged), but Jibo still took **about 3 min** to hear "Hey Jibo" again. **0.2.6** (built, not
   deployed) also closes the :8088 wake-word stream cleanly (§9). **0.2.6 result: about 1 min.**
-  **0.2.7** (built) shortens the ACO `recoveryTimeout` from 20 s to 3 s. With 0.2.5, double pat also stopped
+  **0.2.7** (deployed) shortened the ACO `recoveryTimeout` from 20 s to 3 s: **no change, still about 1 min.**
+  The cause is on Jibo's side. Next step: Jibo's own logs during the deaf minute (location still to be found).
+- **Double pat is dead** (0.2.7 debug log): Jibo sends `onHeadTouch` only when the pad pattern changes,
+  with no release, so a 2nd pat on the same pad produces no event. **0.2.8 / skill 0.2.3** make
+  **double-tap the screen** the exit instead (every `onTap` arrives). With 0.2.5, double pat also stopped
   working in one run, probably because Jibo was carrying stale sessions from earlier unclean
   exits. Re-test it on a freshly rebooted Jibo with `TAKEOVER_DEBUG=1`.
 
@@ -62,8 +66,8 @@ sessions, speech shaping, end detection and local time/date answers.
 
 | Path | Version | State |
 |---|---|---|
-| `gateway/` | 0.2.7 | 0.2.6 is running (post-exit deafness down to about 1 min). 0.2.7 = ACO `recoveryTimeout` 3 s. 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
-| `skill/claude` | 0.2.2 | **Installed and working** (tile after Bad Apple, original speech-bubble-and-spark icon; source `skill/assets/claude-icon.svg`). Waz may swap in his own icon later, which must be a 300×300 PNG with a **transparent** background. 7 harness tests. Strict ES2015. |
+| `gateway/` | 0.2.8 | 0.2.7 is running. 0.2.8 = double-tap screen exit. 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
+| `skill/claude` | 0.2.3 | 0.2.2 **installed and working** (0.2.3 = exit hint text; deploy with `./skill/deploy.sh code`) (tile after Bad Apple, original speech-bubble-and-spark icon; source `skill/assets/claude-icon.svg`). Waz may swap in his own icon later, which must be a 300×300 PNG with a **transparent** background. 7 harness tests. Strict ES2015. |
 | `skill/deploy.sh` | 0.3.2 | Two-stage install (`install` = skill + lazySkills; `tile` = tile + icon). `umask 022`, `chmod -R a+rX`, and a permission check after every action. New `check`, `fixperms` and `untile` commands. `test/deploy.test.sh`: 19 checks against a mock tree with umask 077. |
 | `skill/tools/register.js` | 0.3.0 | Writes files in place (keeps the owner and mode) and forces them world-readable. Backups copy the original's mode. Refuses to add anything to an unreadable tree. |
 | `bridge/jibo_claude.js` | 0.4.0 | Legacy/fallback. **Never run alongside the takeover.** |
@@ -89,7 +93,7 @@ delete `~/jibo-gateway`.
 |---|---|---|
 | Menu mapping: **resolved**. `main-menu/index.js` `redirectToSkill(dest)` → `@be/${dest}` with `nlu {intent:'menu', entities:{domain}}`. There's no filtering; the tile list is `main-menu-verbal.json` verbatim | — | — |
 | `display.showText` is a **single line with no wrapping**. `display.showImage(url)` with an SVG **works** (0.2.4 verified) | — | `TAKEOVER_SCREEN=text` or `eye` if needed |
-| Head-touch cadence: **resolved**. `onHeadTouch` arrives only while touched (one per pat, a stream every 50–210 ms while held), with **no release event** | — | Gap-based detection in 0.2.3 (`touchGapMs` 280, `doublePatMs` 1500, `holdMs` 2000) |
+| Head touch: `onHeadTouch` fires only on a **pad-pattern change** (one per pat, a stream while held because the pads flicker), with **no release event**. So a 2nd pat on the same pad is invisible | Double pat misses | 0.2.8: double-tap the screen instead; hold still works |
 | ROM grabbing the foreground while the skill closes | Takeover never becomes `on` (connect timeout) | Raise `TAKEOVER_START_DELAY_MS` |
 | rom-control version | The old bridge on the linux box used an older build; the gateway pins `^2.0.2` (API checked: `content`, `hotword`, `headTouch.activePads`, `gesture.isSwipe/direction`, `display.showText`) | Pin whichever version the bridge ran |
 | Long ROM sessions (hours) | Drops | rom-control auto-reconnect + re-arm, and the 30-minute idle off |

@@ -45,7 +45,8 @@ const DEFAULTS = {
   startDelayMs: 2500,       // let the menu skill exit before ROM grabs the foreground
   idleMinutes: 30,          // auto-off after this long without a wakeword
   connectTimeoutMs: 45000,  // give up if ROM never becomes ready
-  doublePatMs: 1500,        // two separate pats within this window = off
+  doublePatMs: 1500,        // two separate pats within this window = off (only fires if the pats hit different pads)
+  doubleTapMs: 1500,        // two screen taps within this window = off (0.2.8: main touch exit)
   touchGapMs: 280,          // events closer than this belong to the same touch (a hold streams every 50-210 ms)
   holdMs: 2000,             // a continuous touch this long = off
   screen: 'image',          // 'image' = gateway's /screen.svg; 'text' = one short line; 'eye' = normal eye
@@ -153,7 +154,8 @@ class Takeover extends EventEmitter {
     client.on('headTouch', (ev) => this._onHeadTouch(ev));
     client.on('gesture', (ev) => {
       if (this.cfg.debug) this.deps.log('info', 'gesture', { type: ev && ev.type, direction: ev && ev.direction });
-      if (ev && ev.isSwipe && String(ev.direction).toLowerCase() === 'down') this.stop('swipe down');
+      if (ev && ev.isSwipe && String(ev.direction).toLowerCase() === 'down') return this.stop('swipe down');
+      if (ev && ev.isTap) this._onTap();
     });
     client.on('disconnect', () => {
       if (this.state === 'on') this.deps.log('info', 'takeover: ROM disconnected, auto-reconnecting');
@@ -179,7 +181,7 @@ class Takeover extends EventEmitter {
     // Greet BEFORE arming the wakeword: the greeting contains "hey Jibo" and
     // he would otherwise wake on his own voice (seen on Jibo 2026-09-23).
     this._busy = true;
-    await this._say('Claude mode is on. Say hey Jibo, then ask me anything. Pat my head twice, or swipe down, to go back to normal.');
+    await this._say('Claude mode is on. Say hey Jibo, then ask me anything. Double-tap my screen, or swipe down, to go back to normal.');
     this._busy = false;
     if (this.state !== 'on') return;
     if (this._stopRequested) { const r = this._stopRequested; this._stopRequested = null; return this._doStop(r); }
@@ -266,6 +268,20 @@ class Takeover extends EventEmitter {
    *   2 starts within doublePat -> double pat  -> off
    *   one touch >= holdMs       -> head hold   -> off
    */
+  /**
+   * Double-tap the screen = off (0.2.8). Replaces double pat as the main touch exit:
+   * Jibo only sends onHeadTouch when the pad pattern CHANGES and never on release,
+   * so a second pat on the same pad produces no event at all (seen in 0.2.7 debug log).
+   * Every screen tap arrives as its own onTap event.
+   */
+  _onTap () {
+    if (this.state !== 'on') return;
+    const now = Date.now();
+    this._taps = (this._taps || []).filter((t) => now - t <= this.cfg.doubleTapMs);
+    this._taps.push(now);
+    if (this._taps.length >= 2) { this._taps = []; this.stop('double tap'); }
+  }
+
   _onHeadTouch (ev) {
     if (this.cfg.debug) this.deps.log('info', 'headTouch', { active: ev && ev.activePads, pads: ev && ev.pads });
     const active = !!(ev && ev.activePads && ev.activePads.length);
@@ -362,6 +378,7 @@ class Takeover extends EventEmitter {
     this._touchStarts = [];
     this._lastTouchAt = 0;
     this._touchStartAt = 0;
+    this._taps = [];
     this._set('off', reason);
     this._releasing = c ? this._release(c) : Promise.resolve();
     return this._releasing;

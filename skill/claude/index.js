@@ -2,6 +2,7 @@
 /**
  * @be/claude - "ClaudeOver" main-menu tile.
  *
+ * v0.2.3 - exit hint now "double-tap my screen" (gateway 0.2.8; double pat is unreliable).
  * v0.2.2 - new menu icon (speech bubble + spark, original; source skill/assets/claude-icon.svg).
  * v0.2.1 - exit hint now "pat twice or hold" (matches gateway 0.2.3).
  * v0.2.0 - Tapping the tile asks jibo-gateway to switch Jibo into Claude mode
@@ -23,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const gw = require('./gateway_client');
 
-const VERSION = '0.2.2';
+const VERSION = '0.2.3';
 const TAG = '[claudeover v' + VERSION + ']';
 const DUMP_FILE = '/tmp/claude-skill-last.json';
 const CONFIG_FILE = path.join(__dirname, 'config.json');
@@ -124,8 +125,8 @@ function makePanel () {
   help.style.cssText = 'position:absolute;left:60px;right:60px;top:270px;font-size:34px;line-height:1.6;color:#d8cfc6;';
   help.innerHTML =
     '&bull; Say <b>&ldquo;Hey Jibo&rdquo;</b>, then ask Claude anything<br>' +
-    '&bull; <b>Pat my head twice</b> (or hold it) to go back to normal<br>' +
-    '&bull; or swipe down, or say <b>&ldquo;Claude off&rdquo;</b>';
+    '&bull; <b>Double-tap my screen</b> (or swipe down) to go back to normal<br>' +
+    '&bull; or hold my head, or say <b>&ldquo;Claude off&rdquo;</b>';
   root.appendChild(help);
 
   document.body.appendChild(root);
