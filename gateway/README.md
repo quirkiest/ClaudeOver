@@ -1,4 +1,4 @@
-# ClaudeOver gateway (jibo-gateway) v0.2.3
+# ClaudeOver gateway (jibo-gateway) v0.2.4
 
 This is a LAN service in Docker. It does two jobs:
 
@@ -21,6 +21,7 @@ Jibo skill / curl ──http :8765──▶ gateway ──https──▶ api.ant
 |---|---|---|---|
 | GET | `/healthz` | none | `{ok, version}` |
 | GET | `/version` | none | `{name, version, model, sessions, takeover}` |
+| GET | `/screen.svg` | allowlist only | Claude-mode screen (1280×720 SVG) that Jibo shows via `display.showImage` |
 | POST | `/v1/ask` | Bearer | `{session?, text, reset?}` → `{reply, esml, end, route, session, turns, version}` |
 | POST | `/v1/reset` | Bearer | `{session}` → `{ok, existed}` |
 | GET | `/v1/takeover` | Bearer | → `{takeover: {state, since, reason, turns, jiboHost, idleMinutes}}` |
@@ -37,7 +38,11 @@ Every error body carries a speakable `reply`/`esml` too.
 - **On:** Jibo says "Claude mode is on…". The wake word is armed only *after*
   the greeting, because it contains "hey Jibo" and he would otherwise wake on his
   own voice. The screen shows the instructions
-  plus the version (`TAKEOVER_SCREEN=text`; set it to `eye` to keep the normal eye).
+  plus the version. With `TAKEOVER_SCREEN=image` (the default from 0.2.4), the gateway serves a formatted screen at
+  `GET /screen.svg`: allowlisted IPs only, no token, rendered by `src/screen.js`. Jibo fetches it with
+  `display.showImage`. `text` shows one short line (`showText` can't wrap: 0.2.3's long line ran off
+  the screen). `eye` keeps the normal eye. The image URL defaults to `http://BIND_ADDR:PORT/screen.svg`;
+  override it with `SCREEN_URL`.
 - **Ways to exit:**
   - **swipe down** on the screen (✔ verified on Jibo)
   - **double head pat**: two separate pats within 1.5 s (v0.2.3 fix; see below)
@@ -46,7 +51,13 @@ Every error body carries a speakable `reply`/`esml` too.
     ~50–210 ms while held, and **no release event**. Touches are therefore split by
     time gaps (> 280 ms = new touch). v0.2.2 waited for a release, so it never fired.
   - the robot's own remote-skill head-touch exit (ROM close code 4000) is honoured, with no auto-reconnect
-  - saying **"Claude off" / "stop Claude" / "normal mode"** after "Hey Jibo"
+  - saying **"Claude off" / "stop Claude" / "normal mode"** after "Hey Jibo". Jibo's local speech
+    recogniser doesn't know "Claude", so v0.2.4 matches the garbles it produces
+    ("cloud of", "clawed off", "clod off", "Claude, off"…) after normalising the text. As a **safety net**,
+    in takeover Claude is told to answer exactly `[[EXIT]]` to anything that looks like a request to
+    leave, and the worker then switches off (reason `voice (claude)`).
+    Every utterance logs `takeover heard {words, off}`. The text itself is logged only with
+    `TAKEOVER_DEBUG=1` or `LOG_TRANSCRIPTS=1`.
   - **idle timeout** (`TAKEOVER_IDLE_MIN`, default 30)
   - `POST /v1/takeover {off}`
 - A stop requested mid-answer lets the answer finish first, then says goodbye.
@@ -70,7 +81,7 @@ sudo systemctl enable --now docker && sudo usermod -aG docker $USER   # then log
 git clone git@github.com:<you>/ClaudeOver.git ~/ClaudeOver && cd ~/ClaudeOver
 ./gateway/setup.sh --import ~/jibo-gateway/.env   # keeps the existing key + token (or plain ./gateway/setup.sh)
 docker compose up -d --build                      # from the repo root or from gateway/
-docker compose logs -f                            # "jibo-gateway v0.2.3 listening"
+docker compose logs -f                            # "jibo-gateway v0.2.4 listening"
 ```
 
 `setup.sh` (safe to re-run) does the following:
@@ -115,8 +126,8 @@ GATEWAY_TOKEN=$TOKEN GATEWAY_HOST=192.168.20.26 node client/gateway_client.js --
 docker compose logs -f | grep takeover
 ```
 
-**Offline tests** (no key, no robot): `npm install && npm test`. This runs 24
-takeover-worker tests against a fake rom-control client and 20 HTTP
+**Offline tests** (no key, no robot): `npm install && npm test`. This runs 27
+takeover-worker tests against a fake rom-control client and 22 HTTP
 end-to-end tests against a fake Anthropic API.
 
 **Curl from the host itself returns 403:** Docker's bridge address
@@ -158,9 +169,10 @@ if they differ), plus this README's title.
 
 | File | Version |
 |---|---|
-| `src/server.js` | 0.2.0 |
+| `src/server.js` | 0.2.4 (takeover exit safety net `[[EXIT]]`; no `claude,` prefix stripping in takeover; `GET /screen.svg`) |
+| `src/screen.js` | 0.2.4 (new: Claude-mode screen SVG + short text fallback) |
 | `setup.sh` | 0.1.0 (new in 0.2.1) |
-| `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.1 |
-| `src/takeover.js` | 0.2.3 (gap-based pat/hold detection; greet before wakeword; close 4000 → off; `TAKEOVER_DEBUG`) |
+| `compose.yaml` (+ repo-root `compose.yaml`) | 0.2.4 (`HOST_PORT` for the screen URL) |
+| `src/takeover.js` | 0.2.4 (fuzzy voice exit for ASR garbles, `takeover heard` log, `exit` from Claude → off). 0.2.3: gap-based pat/hold, greet before wakeword, close 4000 → off, `TAKEOVER_DEBUG` |
 | `client/gateway_client.js` | 0.2.0 (adds `takeover()` and `--takeover` CLI) |
-| `test/smoke.js` / `test/takeover.test.js` | 0.2.0 |
+| `test/smoke.js` / `test/takeover.test.js` | 0.2.1 (22 + 27 tests) |

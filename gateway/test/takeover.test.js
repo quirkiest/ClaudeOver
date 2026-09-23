@@ -3,7 +3,7 @@
 'use strict';
 const { EventEmitter } = require('node:events');
 const assert = require('node:assert/strict');
-const { Takeover, OFF_RE } = require('../src/takeover');
+const { Takeover, isOffCommand } = require('../src/takeover');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -26,7 +26,7 @@ class FakeClient extends EventEmitter {
       },
     };
     this.behavior = { say (t) { self.log.push('say:' + t); return sleep(self.sayMs || 5); } };
-    this.display = { showText (t) { self.log.push('text'); }, showEye () { self.log.push('eye'); } };
+    this.display = { showText (t) { self.log.push('text'); self.lastText = t; }, showImage (u) { self.log.push('image:' + u); }, showEye () { self.log.push('eye'); } };
     // minimal RomConnection stand-in: event bus + websocket + subscribe
     this._conn = new EventEmitter();
     this._conn.ws = new EventEmitter();
@@ -36,15 +36,15 @@ class FakeClient extends EventEmitter {
   destroy () { this.destroyed = true; this.log.push('destroy'); }
 }
 
-function make (cfg, script) {
+function make (cfg, script, deps) {
   const calls = [];
   let client;
-  const t = new Takeover({
+  const t = new Takeover(Object.assign({
     converse: async (sid, text) => { calls.push([sid, text]); return { reply: 'R:' + text, end: false, route: 'claude' }; },
     createClient: () => (client = new FakeClient(script)),
     log: () => {},
     version: '9.9.9',
-  }, Object.assign({ startDelayMs: 10, idleMinutes: 0, doublePatMs: 300 }, cfg || {}));
+  }, deps || {}), Object.assign({ startDelayMs: 10, idleMinutes: 0, doublePatMs: 300 }, cfg || {}));
   return { t, calls, client: () => client };
 }
 
@@ -196,11 +196,52 @@ async function test (name, fn) {
     assert.equal(t.state, 'off'); assert.equal(t.reason, 'voice');
   });
 
-  await test('OFF_RE phrases', () => {
-    for (const p of ['claude off', 'claude mode off', 'turn claude off', 'stop claude', 'exit claude mode', 'normal mode', 'go back to normal', 'okay claude off.'])
-      assert.ok(OFF_RE.test(p), p);
-    for (const p of ['what is claude', 'turn off the lights', 'is normal mode good', 'stop'])
-      assert.ok(!OFF_RE.test(p), p);
+  await test('voice exit phrases incl. ASR garbles (isOffCommand)', () => {
+    for (const p of ['claude off', 'Claude, off.', 'claude mode off', 'turn claude off', 'stop claude', 'exit claude mode',
+      'normal mode', 'go back to normal', 'okay claude off.', 'Cloud of', 'clawed off', 'clod off', 'claw off', 'cloud off please',
+      'Hey Jibo, Claude off', 'turn off claude', 'switch off cloud mode', 'bye Claude', "Claude's off", 'cloudoff', 'back to normal jibo'])
+      assert.ok(isOffCommand(p), p);
+    for (const p of ['what is claude', 'turn off the lights', 'is normal mode good', 'stop', 'what is a cloud of gas',
+      'claude off broadway show times', 'how far is the cloud', 'off'])
+      assert.ok(!isOffCommand(p), p);
+  });
+
+  await test('screen: image mode shows /screen.svg with version; falls back to one short text line', async () => {
+    let r = make({ screen: 'image', screenUrl: 'http://gw:8765/screen.svg' });
+    r.t.start(); await sleep(60);
+    assert.ok(r.client().log.includes('image:http://gw:8765/screen.svg?v=9.9.9'), r.client().log.join(','));
+    r.t.stop('test'); await sleep(40);
+    r = make({ screen: 'image', screenUrl: '' });
+    r.t.start(); await sleep(60);
+    assert.ok(r.client().log.includes('text'));
+    assert.ok(r.client().lastText.length <= 30 && r.client().lastText.includes('9.9.9'), r.client().lastText);
+    r.t.stop('test'); await sleep(40);
+    r = make({ screen: 'eye' });
+    r.t.start(); await sleep(60);
+    assert.ok(r.client().log.includes('eye') && !r.client().log.includes('text'));
+    r.t.stop('test'); await sleep(40);
+  });
+
+  await test('safety net: converse says exit → off without speaking a reply', async () => {
+    const said = [];
+    const { t, client } = make({}, ['fluffy gargle'], { converse: async () => ({ reply: '', exit: true }) });
+    t.start(); await sleep(60);
+    const c = client(); const origSay = c.behavior.say; c.behavior.say = (x) => { said.push(x); return origSay.call(c.behavior, x); };
+    c.emit('hotword'); await sleep(80);
+    assert.equal(t.state, 'off'); assert.equal(t.reason, 'voice (claude)');
+    assert.ok(!said.includes(''), 'must not speak the empty exit reply');
+  });
+
+  await test('heard-text logging: shape only by default, text with logText', async () => {
+    for (const logText of [false, true]) {
+      const logs = [];
+      const { t, client } = make({ logText }, ['what time is it'], { log: (lvl, msg, o) => logs.push([msg, o]) });
+      t.start(); await sleep(60); client().emit('hotword'); await sleep(60);
+      const h = logs.find((l) => l[0] === 'takeover heard');
+      assert.ok(h, 'logged'); assert.equal(h[1].words, 4); assert.equal(h[1].off, false);
+      assert.equal('text' in h[1], logText);
+      t.stop('test'); await sleep(40);
+    }
   });
 
   await test('stop during a turn waits for the reply to finish', async () => {

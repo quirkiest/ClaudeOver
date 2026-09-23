@@ -24,6 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const Anthropic = require('@anthropic-ai/sdk');
+const { homeSvg } = require('./screen');
 const { Takeover } = require('./takeover');
 
 const { name: NAME, version: VERSION } = require('../package.json');
@@ -54,7 +55,10 @@ const CFG = {
   listenMs:      Number(env('JIBO_LISTEN_MS', 15000)),
   toIdleMin:     Number(env('TAKEOVER_IDLE_MIN', 30)),
   toStartDelay:  Number(env('TAKEOVER_START_DELAY_MS', 2500)),
-  toScreen:      env('TAKEOVER_SCREEN', 'text'),
+  toScreen:      env('TAKEOVER_SCREEN', 'image'),
+  // URL Jibo fetches the Claude-mode screen from. Default: this gateway's LAN address.
+  screenUrl:     env('SCREEN_URL', '') || ((env('BIND_ADDR', '') && env('BIND_ADDR', '') !== '0.0.0.0')
+    ? `http://${env('BIND_ADDR', '')}:${env('HOST_PORT', '8765')}/screen.svg` : ''),
   toDebug:       env('TAKEOVER_DEBUG', '0') === '1',
 };
 
@@ -136,8 +140,10 @@ function stripPrefix(u) {
   return m ? m[1].trim() : u;
 }
 
-function route(raw) {
-  const text = stripPrefix(raw.trim());
+function route(raw) { return routeRaw(stripPrefix(raw.trim())); }
+
+function routeRaw(raw) {
+  const text = raw.trim();
   const u = text.toLowerCase().replace(/[?.!]+$/, '').trim();
 
   if (!u) return { target: 'prompt' };                       // "ask claude" alone
@@ -148,7 +154,17 @@ function route(raw) {
   return { target: 'claude', text };
 }
 
-function systemPrompt() {
+// Takeover safety net: Claude answers with exactly this when asked to leave Claude mode.
+const EXIT_MARK = '[[EXIT]]';
+const TAKEOVER_PROMPT = `
+You are currently in "Claude mode", switched on from Jibo's menu. The person can
+leave it by saying "Claude off". Jibo's speech recognition often garbles that, for
+example "cloud of", "clawed off", "clod off", "claw off", or just "off". If the
+person's words look like a request to turn you off, leave Claude mode or go back to
+normal Jibo, reply with exactly ${EXIT_MARK} and nothing else. Do not do this for
+ordinary questions that merely mention clouds, claws or turning things off.`;
+
+function systemPrompt(via) {
   const { time, date } = nowParts();
   return `You are Jibo, a friendly social robot with a physical body, speaking aloud.
 Right now it is ${time} on ${date}, and you are in ${CFG.place}.
@@ -156,7 +172,8 @@ Keep every reply to one or two short sentences unless the person clearly asks fo
 more - your words go through a small speaker, so long answers are tiring. Be warm,
 curious and concise. Never use markdown, lists, URLs or emoji; only plain spoken
 language. Spell out symbols and abbreviations the way you would say them. If you
-genuinely cannot know something (live news, weather right now), say so briefly.`;
+genuinely cannot know something (live news, weather right now), say so briefly.` +
+    (via === 'takeover' ? TAKEOVER_PROMPT : '');
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────
@@ -213,13 +230,13 @@ function saveSessions() {
 
 // ── Claude ──────────────────────────────────────────────────────────────────
 
-async function askClaude(s, text) {
+async function askClaude(s, text, via) {
   remember(s, 'user', text);
   try {
     const res = await claude.messages.create({
       model: CFG.model,
       max_tokens: CFG.maxTokens,
-      system: systemPrompt(),
+      system: systemPrompt(via),
       messages: s.history,
     });
     const reply = toSpeakable(res.content.filter((b) => b.type === 'text').map((b) => b.text).join(' '));
@@ -307,10 +324,13 @@ async function converse(sessionId, rawText, opts) {
   const text = String(rawText || '').slice(0, MAX_TEXT);
   if (opts && opts.reset) sessions.delete(sessionId);
   const s = getSession(sessionId);
-  const r = route(text);
+  const via = (opts && opts.via) || 'http';
+  // Takeover: never strip a leading "claude" - "claude, off" must reach Claude intact.
+  const r = via === 'takeover' ? routeRaw(text) : route(text);
 
   let reply;
   let end = false;
+  let exit = false;
   let usage;
   switch (r.target) {
     case 'prompt': reply = 'Sure, what would you like to ask?'; break;
@@ -318,24 +338,28 @@ async function converse(sessionId, rawText, opts) {
     case 'local':  reply = r.reply; break;
     default: {
       try {
-        ({ reply, usage } = await askClaude(s, r.text));
+        ({ reply, usage } = await askClaude(s, r.text, via));
       } catch (e) {
         log('error', 'claude call failed', { session: sessionId, status: e.status, err: e.message, ms: Date.now() - t0 });
         const busy = e.status === 429;
         return { error: 'upstream failure', status: busy ? 503 : 502, reply: busy ? MSG_BUSY : MSG_ERROR,
           end: false, route: r.target, session: sessionId, turns: s.history.length };
       }
-      if (!reply) reply = "Hmm, I don't have an answer for that.";
+      // toSpeakable() may have mangled the brackets: compare letters only.
+      if (via === 'takeover' && reply && reply.replace(/[^A-Za-z]/g, '') === EXIT_MARK.replace(/[^A-Za-z]/g, '')) {
+        exit = true; reply = ''; sessions.delete(sessionId);
+      }
+      if (!reply && !exit) reply = "Hmm, I don't have an answer for that.";
     }
   }
 
   log('info', 'ask', {
-    via: (opts && opts.via) || 'http', session: sessionId, route: r.target, ms: Date.now() - t0,
+    via, session: sessionId, route: exit ? 'exit' : r.target, ms: Date.now() - t0,
     in_chars: text.length, out_chars: reply.length,
     ...(usage ? { in_tok: usage.input_tokens, out_tok: usage.output_tokens } : {}),
     ...(CFG.logText ? { text, reply } : {}),
   });
-  return { reply, end, route: r.target, session: sessionId, turns: s.history.length };
+  return { reply, end, exit, route: exit ? 'exit' : r.target, session: sessionId, turns: s.history.length };
 }
 
 async function handleAsk(req, res, ip) {
@@ -366,7 +390,7 @@ const takeover = new Takeover({
   createClient: (opts) => { const { Client } = require('rom-control'); return new Client(opts); },
 }, {
   jiboHost: CFG.jiboHost, listenMs: CFG.listenMs, idleMinutes: CFG.toIdleMin,
-  startDelayMs: CFG.toStartDelay, screen: CFG.toScreen, debug: CFG.toDebug,
+  startDelayMs: CFG.toStartDelay, screen: CFG.toScreen, screenUrl: CFG.screenUrl, debug: CFG.toDebug, logText: CFG.logText,
 });
 
 async function handleTakeover(req, res) {
@@ -402,6 +426,13 @@ const server = http.createServer(async (req, res) => {
     if (CFG.allowIps.length && !CFG.allowIps.includes(ip)) {
       log('info', 'rejected ip', { ip, url });
       return send(res, 403, { error: 'forbidden' });
+    }
+    // Claude-mode screen for Jibo (display.showImage). Allowlisted IPs only, no token:
+    // Jibo fetches it by plain URL.
+    if (req.method === 'GET' && url === '/screen.svg') {
+      const svg = homeSvg({ version: VERSION });
+      res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-cache', 'content-length': Buffer.byteLength(svg), 'x-gateway-version': VERSION });
+      return res.end(svg);
     }
     if (!authorised(req)) {
       log('info', 'unauthorised', { ip, url });

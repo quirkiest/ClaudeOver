@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * smoke.js - end-to-end test of jibo-gateway against a fake Anthropic API.
+ * smoke.js v0.2.1 - end-to-end test of jibo-gateway against a fake Anthropic API.
  * No real key or network needed.   npm test
  */
 'use strict';
@@ -193,6 +193,27 @@ async function t(name, fn) {
   });
   await t('transcripts not logged by default', () => {
     assert.ok(!g.log().includes('Melbourne from London'));
+  });
+
+  await t('GET /screen.svg: SVG with version, no token needed', async () => {
+    const r = await new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: GW_PORT, path: '/screen.svg?v=x' }, (res) => {
+        let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], body: b }));
+      }).on('error', reject);
+    });
+    assert.equal(r.status, 200); assert.equal(r.type, 'image/svg+xml');
+    assert.match(r.body, /^<\?xml[\s\S]*<svg[^>]+width="1280" height="720"/);
+    assert.ok(r.body.includes('v' + PKG.version) && r.body.includes('ClaudeOver'));
+  });
+
+  await t('/v1/ask: no takeover exit prompt, "claude," prefix still stripped', async () => {
+    upstreamMode = 'ok'; upstreamCalls = [];
+    const { res } = await ask('pfx', 'Claude, what is two plus two');
+    const up = upstreamCalls[upstreamCalls.length - 1].body;
+    const sys = typeof up.system === 'string' ? up.system : JSON.stringify(up.system);
+    assert.ok(!sys.includes('[[EXIT]]'), 'exit marker leaked into /v1/ask prompt');
+    assert.equal(up.messages[up.messages.length - 1].content, 'what is two plus two');
+    assert.equal(res.exit, false);
   });
 
   g.child.kill('SIGTERM');

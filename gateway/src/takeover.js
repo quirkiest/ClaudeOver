@@ -13,8 +13,28 @@
  */
 
 const { EventEmitter } = require('node:events');
+const { homeText } = require('./screen');
 
-const OFF_RE = /^(?:(?:ok(?:ay)?|hey)[,\s]+)?(?:(?:turn\s+)?(?:claude|cloud)\s+(?:mode\s+)?off|(?:stop|exit|end|quit|leave)\s+(?:claude|cloud)(?:\s+mode)?|normal\s+mode|go\s+back\s+to\s+normal|back\s+to\s+normal)[.!\s]*$/i;
+// Voice exit. Jibo's local ASR doesn't know "Claude": it hears cloud / clawed /
+// clod / claw... and "off" often comes back as "of". Match on a normalised
+// utterance (lowercase, no punctuation, no leading "hey jibo"), short phrases only.
+const CL = '(?:claude|claudes|claud|clawed|clawd|claw|claws|cloud|clouds|clod|clods|clause|klaud|klod|claudia)';
+const OFF_RE = new RegExp('^(?:(?:ok|okay|hey|hi|please|now|so)\\s+)*(?:' + [
+  '(?:(?:turn|switch|shut|put)\\s+)?' + CL + '\\s*(?:mode\\s+)?(?:off|of)(?:\\s+(?:mode|now))?',
+  '(?:turn|switch|shut)\\s+off\\s+(?:the\\s+)?' + CL + '(?:\\s+mode)?',
+  '(?:stop|exit|end|quit|leave|close|cancel|disable)\\s+(?:the\\s+)?' + CL + '(?:\\s+mode)?',
+  '(?:goodbye|bye)\\s+' + CL,
+  '(?:go\\s+)?back\\s+to\\s+(?:normal|regular)(?:\\s+(?:jibo|mode))?',
+  '(?:normal|regular)\\s+(?:mode|jibo)',
+].join('|') + ')(?:\\s+please)?$');
+
+/** Lowercase, strip punctuation, drop a leading "hey jibo" the ASR may include. */
+function normalise (text) {
+  return String(text || '').toLowerCase()
+    .replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+    .replace(/^(?:hey\s+)?jibo\s+/, '');
+}
+function isOffCommand (text) { return OFF_RE.test(normalise(text)); }
 
 // ROM websocket close codes (@jibo/command-protocol DisconnectCode)
 const CLOSE = { HeadTouchExit: 4000, RobotError: 4001, NewConnection: 4002, Inactivity: 4003 };
@@ -28,9 +48,11 @@ const DEFAULTS = {
   doublePatMs: 1500,        // two separate pats within this window = off
   touchGapMs: 280,          // events closer than this belong to the same touch (a hold streams every 50-210 ms)
   holdMs: 2000,             // a continuous touch this long = off
-  screen: 'text',           // 'text' = show instructions; 'eye' = normal eye
+  screen: 'image',          // 'image' = gateway's /screen.svg; 'text' = one short line; 'eye' = normal eye
+  screenUrl: '',            // where Jibo fetches the image screen (set by server.js)
   sessionId: 'takeover',
   debug: false,             // log every raw ROM event + subscription result (TAKEOVER_DEBUG=1)
+  logText: false,           // include heard text in 'takeover heard' log lines (LOG_TRANSCRIPTS=1)
 };
 
 function nowIso () { return new Date().toISOString(); }
@@ -215,8 +237,11 @@ class Takeover extends EventEmitter {
     const c = this.client;
     if (!c || !c.display) return;
     try {
-      if (this.cfg.screen === 'text') {
-        c.display.showText('Claude mode  -  say "Hey Jibo", then ask  -  pat my head twice or swipe down to exit  -  v' + this.deps.version);
+      const mode = this.cfg.screen === 'image' && !this.cfg.screenUrl ? 'text' : this.cfg.screen;
+      if (mode === 'image' && typeof c.display.showImage === 'function') {
+        c.display.showImage(this.cfg.screenUrl + '?v=' + encodeURIComponent(this.deps.version));
+      } else if (mode === 'image' || mode === 'text') {
+        c.display.showText(homeText(this.deps.version));
       } else {
         c.display.showEye();
       }
@@ -277,11 +302,17 @@ class Takeover extends EventEmitter {
       if (!text) { await this._say('Sorry, I did not catch that.'); return; }
       if (this._stopRequested) return;
 
-      if (OFF_RE.test(text.toLowerCase().trim())) { this._busy = false; return this.stop('voice'); }
+      const off = isOffCommand(text);
+      // Transcript text only with TAKEOVER_DEBUG or LOG_TRANSCRIPTS; otherwise just its shape.
+      this.deps.log('info', 'takeover heard', Object.assign({ words: normalise(text).split(' ').length, off: off },
+        (this.cfg.debug || this.cfg.logText) ? { text: text } : {}));
+      if (off) { this._busy = false; return this.stop('voice'); }
 
       const out = await this.deps.converse(this.cfg.sessionId, text, { via: 'takeover' });
       this.turns += 1;
       if (this._stopRequested) return;
+      // Safety net: Claude recognised an exit request the regex missed (see server.js EXIT_MARK).
+      if (out && out.exit) { this._busy = false; return this.stop('voice (claude)'); }
       await this._say(out.reply);
     } catch (e) {
       this.deps.log('error', 'takeover turn failed', { err: e && e.message });
@@ -335,4 +366,4 @@ class Takeover extends EventEmitter {
   shutdown () { if (this.state !== 'off') this._teardown('gateway shutdown'); }
 }
 
-module.exports = { Takeover, OFF_RE, DEFAULTS, CLOSE };
+module.exports = { Takeover, OFF_RE, isOffCommand, normalise, DEFAULTS, CLOSE };

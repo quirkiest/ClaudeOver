@@ -1,4 +1,4 @@
-# jibo-gateway v0.2.3 (ClaudeOver)
+# jibo-gateway v0.2.4 (ClaudeOver)
 #   docker compose up -d --build
 #   docker compose logs -f
 name: jibo
@@ -6,13 +6,14 @@ name: jibo
 services:
   gateway:
     build: .
-    image: jibo-gateway:0.2.3
+    image: jibo-gateway:0.2.4
     container_name: jibo-gateway
     restart: unless-stopped
     env_file: .env
     environment:
       TZ: ${TZ:-Australia/Melbourne}
       PORT: "8765"          # in-container port is fixed; change the host side via PORT in .env
+      HOST_PORT: "${PORT:-8765}"   # host-side port, for the /screen.svg URL Jibo fetches
     # Bind to the LAN address only (set BIND_ADDR in .env). Docker-published
     # ports bypass ufw, so ALLOW_IPS + token are the real gate - see README.
     ports:
