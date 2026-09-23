@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
-# deploy.sh v0.3.1 - push the ClaudeOver skill (@be/claude) to Jibo. Run on the LINUX BOX.
+# deploy.sh v0.3.2 - push the ClaudeOver skill (@be/claude) to Jibo. Run on the LINUX BOX.
 #
-#   ./deploy.sh install     copy skill + register (lazySkills, menu tile, icon); then reboot Jibo
-#   ./deploy.sh code        copy index.js only (hot-reloads on next "ask Claude", no reboot)
-#   ./deploy.sh status      show installed version, registry entry, last launch dump
-#   ./deploy.sh uninstall   unregister + remove skill (restores nothing else)
+#   ./deploy.sh install     STAGE 1: copy skill + lazySkills entry. Reboot, check eye + menu.
+#   ./deploy.sh tile        STAGE 2: add ClaudeOver menu tile + icon. Reboot, check menu.
+#   ./deploy.sh code        copy index.js/client/config only (hot-reloads on next tap, no reboot)
+#   ./deploy.sh status      installed version, registration, permissions, last launch dump
+#   ./deploy.sh check       exit 1 if anything Be reads is not readable by user jibo-skill
+#   ./deploy.sh fixperms    repair: make everything Be reads world-readable (recovery)
+#   ./deploy.sh untile      remove the menu tile + icon only
+#   ./deploy.sh uninstall   remove tile, icon, lazySkills entry and skill files
+#
+# v0.3.2: BEam's skill host runs as `jibo-skill` and root's umask on Jibo is 077,
+#   so files root creates are 600 = unreadable = no eye / no menu. Every remote
+#   session now runs `umask 022`, chmods what it writes, and ends with a check.
+#   Install is split into two stages so a bad tile can't take the menu down with it.
 #
 # Env: JIBO_HOST (default 192.168.20.40), GATEWAY_ENV (default ../gateway/.env,
 #      then ~/jibo-gateway/.env) - source of GATEWAY_TOKEN + BIND_ADDR/PORT for the
@@ -12,7 +21,7 @@
 # one password prompt ("jibo"). Tip: `ssh-copy-id root@$JIBO_HOST` to skip it.
 set -euo pipefail
 
-VERSION=0.3.1
+VERSION=0.3.2
 JIBO_HOST=${JIBO_HOST:-192.168.20.40}
 BE=${JIBO_BE:-/opt/jibo/Jibo/Skills/@be/be}   # override only for local testing
 DEST=$BE/skills/claude
@@ -23,7 +32,10 @@ SSH=${JIBO_SSH:-"ssh -o ConnectTimeout=5 root@$JIBO_HOST"}
 skill_version() { sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$SRC/package.json" | head -1; }
 
 STAGE=/tmp/claude-deploy
-WRITABLE_CHECK="touch $BE/.claude-wtest 2>/dev/null && rm -f $BE/.claude-wtest || { echo 'ERROR: $BE is read-only. Try: mount -o remount,rw /'; exit 1; }"
+WCHK="touch $BE/.claude-wtest 2>/dev/null && rm -f $BE/.claude-wtest || { echo 'ERROR: $BE is read-only. Try: mount -o remount,rw /'; exit 1; }"
+# every remote session: umask 022 (root's default on Jibo is 077 -> files jibo-skill can't read), unpack stage
+PRE="umask 022; rm -rf $STAGE && mkdir -p $STAGE && tar -xf - -C $STAGE"
+REG="node $STAGE/tools/register.js"
 
 # ── skill config.json from the gateway's .env ───────────────────────────────
 find_env() {
@@ -52,46 +64,65 @@ trap cleanup EXIT
 # Ship skill (+config.json) + tools as one tar to a staging dir on Jibo (single ssh session).
 push_all() { tar --format=ustar -C "$WORK" -cf - claude tools; }   # call stage_local first (main shell)
 
+REBOOT_HINT="  $SSH reboot"
+
 case "${1:-}" in
   install)
     stage_local
-    echo "deploy v$VERSION: installing @be/claude v$(skill_version) to $JIBO_HOST"
-    push_all | $SSH "set -e; $WRITABLE_CHECK
-      rm -rf $STAGE && mkdir -p $STAGE && tar -xf - -C $STAGE
+    echo "deploy v$VERSION: STAGE 1 - installing @be/claude v$(skill_version) to $JIBO_HOST (no menu tile yet)"
+    push_all | $SSH "set -e; $PRE
+      $WCHK
       mkdir -p $DEST && cp -r $STAGE/claude/. $DEST/
-      node $STAGE/tools/register.js install $BE
+      chmod -R a+rX $DEST
+      $REG skill $BE
       echo installed: \$(sed -n 's/.*\"version\": *\"\\([^\"]*\\)\".*/\\1/p' $DEST/package.json | head -1)
       rm -rf $STAGE"
     echo
-    echo "NEXT: reboot Jibo once so BEam picks up the registry, menu tile and launch rule:"
-    echo "  $SSH reboot"
-    echo "Then open Jibo's menu -> 'ClaudeOver' tile (next to Bad Apple). Afterwards: ./deploy.sh status"
+    echo "NEXT: reboot Jibo, wait for the eye, tap it and check the menu opens:"
+    echo "$REBOOT_HINT"
+    echo "Only if eye + menu are fine: ./deploy.sh tile"
+    echo "If not: ./deploy.sh fixperms, reboot; still bad: ./deploy.sh uninstall, reboot."
+    ;;
+  tile)
+    stage_local
+    echo "deploy v$VERSION: STAGE 2 - adding ClaudeOver menu tile on $JIBO_HOST"
+    push_all | $SSH "set -e; $PRE
+      $WCHK
+      test -f $DEST/index.js || { echo 'ERROR: skill not installed - run ./deploy.sh install first'; exit 1; }
+      $REG tile $BE
+      rm -rf $STAGE"
+    echo
+    echo "NEXT: reboot Jibo, then Menu -> 'ClaudeOver' (after Bad Apple):"
+    echo "$REBOOT_HINT"
+    echo "Menu broken? ./deploy.sh untile, reboot."
     ;;
   code)
     echo "deploy v$VERSION: pushing index.js (skill v$(skill_version)) to $JIBO_HOST"
     stage_local
-    tar --format=ustar -C "$WORK/claude" -cf - index.js package.json gateway_client.js config.json | $SSH "set -e; $WRITABLE_CHECK
-      tar -xf - -C $DEST && ls -l $DEST/index.js"
+    tar --format=ustar -C "$WORK/claude" -cf - index.js package.json gateway_client.js config.json | $SSH "set -e; umask 022; $WCHK
+      test -d $DEST || { echo 'ERROR: skill not installed'; exit 1; }
+      tar -xf - -C $DEST && chmod a+r $DEST/index.js $DEST/package.json $DEST/gateway_client.js $DEST/config.json
+      ls -l $DEST/index.js"
     echo "Hot reload: next tile tap loads the new index.js (mtime changed). No reboot."
-    echo "If launch.rule changed, use 'install' + reboot instead."
+    echo "If launch.rule or the icon changed, use 'install' + reboot instead."
     ;;
-  status)
+  status|check|fixperms|untile|uninstall)
     stage_local
-    push_all | $SSH "rm -rf $STAGE && mkdir -p $STAGE && tar -xf - -C $STAGE
-      echo '== installed'; sed -n 's/.*\"version\": *\"\\([^\"]*\\)\".*/\\1/p' $DEST/package.json 2>/dev/null | head -1 || echo none
-      echo '== registration'; node $STAGE/tools/register.js status $BE
-      echo '== last speak'; cat /tmp/claude-skill-last-speak.txt 2>/dev/null || echo none
-      echo '== last launch dump'; cat /tmp/claude-skill-last.json 2>/dev/null || echo none
-      rm -rf $STAGE"
-    ;;
-  uninstall)
-    stage_local
-    push_all | $SSH "set -e; $WRITABLE_CHECK
-      rm -rf $STAGE && mkdir -p $STAGE && tar -xf - -C $STAGE
-      node $STAGE/tools/register.js uninstall $BE
-      rm -rf $DEST $STAGE && echo removed $DEST"
-    echo "Reboot Jibo to drop the tile and launch rule:  $SSH reboot"
+    ACT=$1
+    push_all | $SSH "$PRE
+      case $ACT in
+        status)
+          echo '== installed'; sed -n 's/.*\"version\": *\"\\([^\"]*\\)\".*/\\1/p' $DEST/package.json 2>/dev/null | head -1 || echo none
+          echo '== registration + permissions'; $REG status $BE
+          echo '== last speak'; cat /tmp/claude-skill-last-speak.txt 2>/dev/null || echo none
+          echo '== last launch dump'; cat /tmp/claude-skill-last.json 2>/dev/null || echo none ;;
+        untile|fixperms) $WCHK; $REG $ACT $BE ;;
+        uninstall) $WCHK; $REG uninstall $BE && rm -rf $DEST && echo removed $DEST ;;
+        *) $REG $ACT $BE ;;
+      esac; rc=\$?
+      rm -rf $STAGE; exit \$rc"
+    case $ACT in untile|uninstall|fixperms) echo "Reboot Jibo to apply:"; echo "$REBOOT_HINT" ;; esac
     ;;
   *)
-    sed -n '2,11p' "$0"; exit 2 ;;
+    sed -n '2,20p' "$0"; exit 2 ;;
 esac

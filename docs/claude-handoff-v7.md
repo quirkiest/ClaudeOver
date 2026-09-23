@@ -1,4 +1,4 @@
-# ClaudeOver — Claude Handoff v0.7.1
+# ClaudeOver — Claude Handoff v0.7.2
 
 Supersedes `claude-handoff-v6.3.md` (kept in this folder for history: dead
 ends, BEam internals, the gate results). Written 2026-09-23.
@@ -11,9 +11,23 @@ ends, BEam internals, the gate results). Written 2026-09-23.
 
 Never say "the laptop"; it's ambiguous.
 
-**Status: BUILT, NOT YET DEPLOYED.** The project has moved from *parked* to
-**ClaudeOver**, a menu-tile switch into a gateway-hosted takeover mode.
-Repo: `~/GitHub/ClaudeOver` on the mac (Waz commits/pushes) → `git clone` to `~/ClaudeOver` on the linux box, and run it from there.
+**Status (2026-09-23 evening):**
+
+- **Gateway 0.2.3 is live and verified on Jibo.** The takeover works via CLI and
+  Claude answers. The swipe-down, double-pat and head-hold exits all work, and
+  there's no self-wake.
+- **"Claude off" by voice doesn't work yet.** It needs the `onListenResult`
+  transcript with `TAKEOVER_DEBUG=1` so `OFF_RE` can be extended. Set
+  `TAKEOVER_DEBUG` back to 0 afterwards.
+- **Skill: not installed.** The first `deploy.sh` 0.3.1 install broke the menu,
+  and a restore later caused a no-eye boot (see §7). Jibo is **fully reverted and
+  healthy**: eye, menu and "Hey Jibo" all work, `@be/claude` is not in
+  lazySkills, and there is no tile. `deploy.sh` 0.3.2 / `register.js` 0.3.0 fix
+  the cause, but they haven't been run on Jibo yet.
+
+Repo: `~/GitHub/ClaudeOver` on the mac (Waz commits and pushes), and
+`~/ClaudeOver` on the linux box (a clone over SSH with the deploy-key alias
+`github-claudeover`).
 
 ---
 
@@ -31,10 +45,10 @@ No dev mode is involved. That was only ever for filesystem inspection.
 ## 2. Architecture
 
 ```
-Tile tap → skill (@be/claude v0.2.0): speak → POST /v1/takeover {on} → exit
-Gateway v0.2.1 (Docker on the linux box, .26:8765): waits 2.5 s → rom-control Client → Jibo :8160/:8088
+Tile tap → skill (@be/claude v0.2.1): speak → POST /v1/takeover {on} → exit
+Gateway v0.2.3 (Docker on the linux box, .26:8765): waits 2.5 s → rom-control Client → Jibo :8160/:8088
   hotword → stopWakeword → awaitSpeech(local, 15s/15s) → converse('takeover') → say → watchWakeword
-  exits: double head pat (2 touch-starts ≤1.5 s) | swipe down | OFF_RE voice | idle 30 min | POST {off}
+  exits: double head pat (2 touch-starts ≤1.5 s, gap >280 ms) | head hold ≥2 s | swipe down | OFF_RE voice | idle 30 min | POST {off}
 ```
 
 `converse()` is shared by `POST /v1/ask` and the worker, so both get the
@@ -44,46 +58,39 @@ sessions, speech shaping, end detection and local time/date answers.
 
 | Path | Version | State |
 |---|---|---|
-| `gateway/` | 0.2.1 | Built. Run from the clone: root `compose.yaml` includes `gateway/compose.yaml` (project `jibo`); `gateway/setup.sh` 0.1.0 writes `.env`. 36 offline tests pass (16 worker tests with a fake rom-control, 20 HTTP tests with a fake Anthropic API). **Not yet run against the real Jibo.** |
-| `skill/claude` | 0.2.0 | Built. 7 harness tests pass. Strict ES2015. |
-| `skill/deploy.sh` | 0.3.1 | Generates `config.json` (token, host) from the gateway `.env`, pushed copy only. Tested against a mock BEam tree. |
-| `skill/tools/register.js` | 0.2.1 | lazySkills + menu tile "ClaudeOver" + icon. Idempotent, `*.bak-claude` backups. |
+| `gateway/` | 0.2.3 | **Running on the linux box, verified with Jibo.** Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
+| `skill/claude` | 0.2.1 | Built, not installed. 7 harness tests. Strict ES2015. |
+| `skill/deploy.sh` | 0.3.2 | Two-stage install (`install` = skill + lazySkills; `tile` = tile + icon). `umask 022`, `chmod -R a+rX`, and a permission check after every action. New `check`, `fixperms` and `untile` commands. `test/deploy.test.sh`: 19 checks against a mock tree with umask 077. |
+| `skill/tools/register.js` | 0.3.0 | Writes files in place (keeps the owner and mode) and forces them world-readable. Backups copy the original's mode. Refuses to add anything to an unreadable tree. |
 | `bridge/jibo_claude.js` | 0.4.0 | Legacy/fallback. **Never run alongside the takeover.** |
 
-**Currently on Jibo:** `@be/claude` **v0.1.0** (the probe) is registered in
-lazySkills, with no menu tile. `deploy.sh install` overwrites it with 0.2.0 and
-adds the tile.
+**Currently on Jibo:** nothing of ours. The original `package.json` and
+`main-menu-verbal.json` were restored from `*.bak-claude` and are now 644. The
+`*.bak-claude` files are 644 (identical to the current files). The `*.broken`
+copies are 600 and can be deleted.
 
-**Linux box:** `192.168.20.26` (DHCP reservation pending), powered down since
-2026-09-23. It still has gateway **v0.1.0** in `~/jibo-gateway` (compose project
-`jibo`). The first `docker compose up` from the clone replaces that container
-in place, because the project name is the same.
+**Linux box:** `192.168.20.26` (DHCP reservation pending). Gateway 0.2.3 runs
+from `~/ClaudeOver` (compose project `jibo`, container `jibo-gateway`). You can
+delete `~/jibo-gateway`.
 
-## 4. Deploy / test plan (next session)
+## 4. Next steps
 
 All steps run on the **linux box** unless noted.
 
-1. **Clone and set up:**
-   ```bash
-   git clone <repo> ~/ClaudeOver && cd ~/ClaudeOver
-   ./gateway/setup.sh --import ~/jibo-gateway/.env    # keeps the API key and the token Jibo already has
-   docker compose up -d --build && docker compose logs -f
-   ```
-   Check that `/version` shows `0.2.1` and `takeover: off`.
-2. **Test the takeover without the tile first:**
-   `cd gateway && GATEWAY_TOKEN=$(grep ^GATEWAY_TOKEN .env|cut -d= -f2) GATEWAY_HOST=192.168.20.26 node client/gateway_client.js --takeover on`
-   Expect Jibo to say "Claude mode is on…" and show the instruction text. Then
-   "Hey Jibo, …" → answer. Then a double pat → "Okay, back to normal Jibo" →
-   eyes. This checks the ROM path and the exits with no skill involved.
-3. `./skill/deploy.sh install`, then `ssh root@192.168.20.40 reboot`.
-4. On Jibo: Menu → **ClaudeOver** → panel + "Switching to Claude mode" →
-   takeover starts. Run `./skill/deploy.sh status` to see the launch dump and
-   which speech call worked.
-5. Check the rest: swipe down, "Claude off", mid-answer double pat (the answer
-   finishes first), and the idle timeout (temporarily set `TAKEOVER_IDLE_MIN=1`).
-6. **Iterating:** edit on the mac → commit/push → on the linux box `git pull`,
-   then `docker compose up -d --build` (gateway) and/or `./skill/deploy.sh code`
-   (skill). Delete `~/jibo-gateway` once the clone is running.
+1. `git pull` (brings in `deploy.sh` 0.3.2), then `./skill/deploy.sh check`.
+   Expect `perms ok`.
+2. `./skill/deploy.sh install`, then reboot Jibo. **Check that the eye comes back
+   and the menu opens.** If not, run `./skill/deploy.sh fixperms` and reboot; if
+   that fails too, run `./skill/deploy.sh uninstall` and reboot.
+3. `./skill/deploy.sh tile`, then reboot. Check the menu again, then tap
+   **ClaudeOver**. Run `./skill/deploy.sh status` to see the launch dump, which
+   confirms the `destination:"claude"` → `@be/claude` mapping.
+   Menu broken? Run `./skill/deploy.sh untile` and reboot.
+4. "Claude off": set `TAKEOVER_DEBUG=1` in `gateway/.env`, run `docker compose up -d`,
+   say "Hey Jibo … Claude off", then read the transcript with
+   `docker compose logs | grep -i listen`. Extend `OFF_RE` to match, then set
+   `TAKEOVER_DEBUG=0`.
+5. Test the idle timeout (temporarily set `TAKEOVER_IDLE_MIN=1`).
 
 ## 5. Known unknowns and risks
 
@@ -91,7 +98,7 @@ All steps run on the **linux box** unless noted.
 |---|---|---|
 | Menu `destination:"claude"` → `@be/claude` mapping | Tile does nothing / "I don't understand" | Inspect `main-menu/index.js` destination mapping (grep command in `skill/README.md`) |
 | `display.showText` rendering in ROM | Odd or blank screen | `TAKEOVER_SCREEN=eye` |
-| Head-touch event cadence (`onHeadTouch` fires on every pad change) | Double pat too eager or too hard | Tune `doublePatMs` (currently 1500) in `takeover.js` |
+| Head-touch cadence: **resolved**. `onHeadTouch` arrives only while touched (one per pat, a stream every 50–210 ms while held), with **no release event** | — | Gap-based detection in 0.2.3 (`touchGapMs` 280, `doublePatMs` 1500, `holdMs` 2000) |
 | ROM grabbing the foreground while the skill closes | Takeover never becomes `on` (connect timeout) | Raise `TAKEOVER_START_DELAY_MS` |
 | rom-control version | The old bridge on the linux box used an older build; the gateway pins `^2.0.2` (API checked: `content`, `hotword`, `headTouch.activePads`, `gesture.isSwipe/direction`, `display.showText`) | Pin whichever version the bridge ran |
 | Long ROM sessions (hours) | Drops | rom-control auto-reconnect + re-arm, and the 30-minute idle off |
@@ -106,3 +113,24 @@ All steps run on the **linux box** unless noted.
 - `update-beam.sh` probably wipes the registration, so re-run `deploy.sh install` after it.
 - Security: Jibo's :8160 and :10223 are open on the LAN. The token on Jibo is
   LAN-readable. Set a spend limit in the Anthropic console.
+
+## 7. Incident 2026-09-23: menu dead, then no eye (root cause: permissions)
+
+- **What happened:** `deploy.sh` 0.3.1 ran `install`. Afterwards, tapping the
+  eye only dimmed the screen: no menu. Restoring the menu JSON from its backup
+  didn't help. A full revert (`package.json` from `.bak-claude`, then a reboot)
+  left **no eye at all**. SSH still worked.
+- **Root cause:** BEam's skill host (electron `skill-main.js`,
+  `--remote-debugging-port=9222`) runs as the user **`jibo-skill`**, not root.
+  Root's umask on Jibo is **077**. `cp -r` into the new skill dir, and
+  `register.js` 0.2.1's `writeFileSync` for the backups and the icon, both
+  created **600 root:root** files. Restoring from those backups then made
+  `package.json` itself 600, so Be couldn't read its registry and never started.
+  The BEam originals are 777.
+- **Fix on Jibo:** `chmod 644 package.json skills/main-menu/resources/views/main-menu-verbal.json`
+  (plus the backups), then reboot. The eye and menu came back.
+- **Prevention:** `deploy.sh` 0.3.2 / `register.js` 0.3.0 (see §3), plus a
+  recovery section in `skill/README.md`.
+- **Rule:** before hand-editing anything under `@be/be` on Jibo, run
+  `umask 022`, then check the result with `ls -l`. After *any* change, the test
+  is `find . -maxdepth 6 ! -perm -004 | grep -v node_modules`, which must print nothing.

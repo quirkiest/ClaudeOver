@@ -9,7 +9,7 @@ Tap the **ClaudeOver** tile in Jibo's menu, and from then on every
 |---|---|---|
 | [`gateway/`](gateway/) | **0.2.3** | Docker service on the LAN. Holds the API key, talks to Claude, and runs the **takeover worker**: a ROM session to Jibo that handles wake word → speech → Claude → reply. |
 | [`skill/`](skill/) | **0.2.1** | On-robot BEam skill: the ClaudeOver menu tile. Tapping it asks the gateway to switch takeover on, then exits. |
-| [`skill/deploy.sh`](skill/deploy.sh) | 0.3.1 | Pushes and registers the skill on Jibo from the linux box. |
+| [`skill/deploy.sh`](skill/deploy.sh) | 0.3.2 | Pushes and registers the skill on Jibo from the linux box, in two stages (skill, then tile), with a permission check. |
 | [`bridge/`](bridge/) | 0.4.0 | The original ROM bridge (`jibo_claude.js`). It's superseded by the gateway's takeover worker and kept for reference. |
 | [`docs/`](docs/) | – | Handoff notes: history, dead ends, findings. |
 | `compose.yaml` (root) | 0.2.1 | Includes `gateway/compose.yaml`, so `docker compose …` works from the repo root. |
@@ -48,8 +48,11 @@ suspended. That's inherent to ROM. Turn it off to get them back.
    ```
    Details: [`gateway/README.md`](gateway/README.md).
 2. **Skill**: from the same clone, with Jibo in *normal* mode, run
-   `./skill/deploy.sh install`, then reboot Jibo once. It reads the token from
-   `gateway/.env` automatically. See [`skill/README.md`](skill/README.md).
+   `./skill/deploy.sh install` and reboot Jibo; check that the eye and menu are
+   fine. Then run `./skill/deploy.sh tile` and reboot again. It reads the token
+   from `gateway/.env` automatically. See [`skill/README.md`](skill/README.md),
+   especially **Permissions**: Be runs as `jibo-skill`, so a root-only (600)
+   file under `@be/be` means no eye.
 3. On Jibo: **Menu → ClaudeOver**, then "Hey Jibo, how far is Melbourne from London?"
 4. Double-pat his head to exit.
 
