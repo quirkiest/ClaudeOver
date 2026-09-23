@@ -351,6 +351,23 @@ async function test (name, fn) {
     await p; assert.ok(client().destroyed);
   });
 
+  await test('wake-word stream (:8088) closed cleanly per turn and on release, never terminated when open', async () => {
+    const { EventEmitter: EE } = require('node:events');
+    const mkWatcher = () => { const ws = new EE(); ws.readyState = 1; ws.closed = null; ws.terminated = false;
+      ws.close = (code) => { ws.closed = code; setTimeout(() => ws.emit('close'), 5); }; ws.terminate = () => { ws.terminated = true; };
+      return { _running: true, _ws: ws, _reconnectTimer: null }; };
+    const { t, client } = make({}, ['a question']);
+    t.start(); await sleep(60);
+    const c = client();
+    let w = mkWatcher(); c._conn._wakewordWatcher = w;
+    c.emit('hotword'); await sleep(60);                       // per-turn stop before listening
+    assert.equal(w._ws, null); assert.equal(w._running, false);
+    w = mkWatcher(); c._conn._wakewordWatcher = w; const ws = w._ws;
+    await t.shutdown();                                       // release
+    assert.equal(ws.closed, 1000); assert.equal(ws.terminated, false);
+    assert.equal(c._conn._wakewordWatcher, null);
+  });
+
   await test('shutdown releases Jibo immediately', async () => {
     const { t, client } = make();
     t.start(); await sleep(60);

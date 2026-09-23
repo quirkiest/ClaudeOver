@@ -1,4 +1,4 @@
-# ClaudeOver — Claude Handoff v0.7.5
+# ClaudeOver — Claude Handoff v0.7.6
 
 Supersedes `claude-handoff-v6.3.md` (kept in this folder for history: dead
 ends, BEam internals, the gate results). Written 2026-09-23.
@@ -22,8 +22,11 @@ Never say "the laptop"; it's ambiguous.
   the formatted `/screen.svg` screen, and the "Claude off" voice exit all work on Jibo (§8).
 - **Bug found in 0.2.4:** after leaving Claude mode, Jibo doesn't respond to "Hey Jibo".
   The suspect is rom-control's `destroy()`, which does `ws.terminate()` with no close frame, so
-  Jibo never sees the session end. **0.2.5** (built, not yet deployed) sends a clean close (1000)
-  and waits for Jibo to acknowledge it (§9).
+  Jibo never sees the session end. **0.2.5** (deployed) closes the ROM session cleanly (code 1000
+  acknowledged), but Jibo still took **about 3 min** to hear "Hey Jibo" again. **0.2.6** (built, not
+  deployed) also closes the :8088 wake-word stream cleanly (§9). With 0.2.5, double pat also stopped
+  working in one run, probably because Jibo was carrying stale sessions from earlier unclean
+  exits. Re-test it on a freshly rebooted Jibo with `TAKEOVER_DEBUG=1`.
 
 Repo: `~/GitHub/ClaudeOver` on the mac (Waz commits and pushes), and
 `~/ClaudeOver` on the linux box (a clone over SSH with the deploy-key alias
@@ -58,7 +61,7 @@ sessions, speech shaping, end detection and local time/date answers.
 
 | Path | Version | State |
 |---|---|---|
-| `gateway/` | 0.2.5 | 0.2.4 is running and verified, except that voice doesn't come back after exit. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
+| `gateway/` | 0.2.6 | 0.2.5 is running. 0.2.6 = clean close of the :8088 wake-word stream. 0.2.5 = clean ROM close. 0.2.4: Fuzzy voice exit, `[[EXIT]]` safety net, `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
 | `skill/claude` | 0.2.2 | **Installed and working** (tile after Bad Apple, original speech-bubble-and-spark icon; source `skill/assets/claude-icon.svg`). Waz may swap in his own icon later, which must be a 300×300 PNG with a **transparent** background. 7 harness tests. Strict ES2015. |
 | `skill/deploy.sh` | 0.3.2 | Two-stage install (`install` = skill + lazySkills; `tile` = tile + icon). `umask 022`, `chmod -R a+rX`, and a permission check after every action. New `check`, `fixperms` and `untile` commands. `test/deploy.test.sh`: 19 checks against a mock tree with umask 077. |
 | `skill/tools/register.js` | 0.3.0 | Writes files in place (keeps the owner and mode) and forces them world-readable. Backups copy the original's mode. Refuses to add anything to an unreadable tree. |
@@ -152,6 +155,10 @@ delete `~/jibo-gateway`.
   so the close doesn't trigger a reconnect. It then sends `ws.close(1000)`, waits for Jibo to
   acknowledge (at most `releaseMs`, 2 s), and only then calls `destroy()`. Server shutdown awaits the
   same release. The logs show `rom session closed cleanly {code}`.
-- **If Jibo is still deaf with 0.2.5:** check whether he recovers on his own after N minutes
-  (that would be the inactivity timeout). Then look at the ROM protocol for an explicit session-end
-  command.
+- **0.2.5 result:** the clean ROM close worked (code 1000 acknowledged), but Jibo only heard "Hey Jibo"
+  again after **about 3 minutes**. So something on Jibo times out.
+- **0.2.6:** the wake-word stream (`ws://jibo:8088/simple_port`, rom-control's `WakewordWatcher`) was also
+  `terminate()`d, and it's stopped and re-armed on **every turn**, so half-open sockets pile up on
+  Jibo. `_stopWake()` now closes it cleanly, both per turn and in `_release()`.
+- **If 0.2.6 still takes about 3 min:** look for an explicit end-session command in the ROM protocol,
+  or at whether the `Speech` subscription (`Listen: true`) needs to be unsubscribed before closing.

@@ -7,7 +7,7 @@ Tap the **ClaudeOver** tile in Jibo's menu, and from then on every
 
 | Component | Version | What it is |
 |---|---|---|
-| [`gateway/`](gateway/) | **0.2.5** | Docker service on the LAN. Holds the API key, talks to Claude, and runs the **takeover worker**: a ROM session to Jibo that handles wake word → speech → Claude → reply. |
+| [`gateway/`](gateway/) | **0.2.6** | Docker service on the LAN. Holds the API key, talks to Claude, and runs the **takeover worker**: a ROM session to Jibo that handles wake word → speech → Claude → reply. |
 | [`skill/`](skill/) | **0.2.2** | On-robot BEam skill: the ClaudeOver menu tile. Tapping it asks the gateway to switch takeover on, then exits. |
 | [`skill/deploy.sh`](skill/deploy.sh) | 0.3.2 | Pushes and registers the skill on Jibo from the linux box, in two stages (skill, then tile), with a permission check. |
 | [`bridge/`](bridge/) | 0.4.0 | The original ROM bridge (`jibo_claude.js`). It's superseded by the gateway's takeover worker and kept for reference. |

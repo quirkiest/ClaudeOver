@@ -291,7 +291,7 @@ class Takeover extends EventEmitter {
     this._busy = true;
     this._resetIdle();
     try {
-      try { c.audio.stopWakeword(); } catch (e) { /* no-op */ }
+      this._stopWake(c);
       let heard;
       try {
         heard = await c.audio.awaitSpeech({ mode: 'local', time: this.cfg.listenMs, noSpeechTime: this.cfg.listenMs });
@@ -341,7 +341,7 @@ class Takeover extends EventEmitter {
     if (this.state !== 'on') return;
     this._set('stopping', reason);
     this._clear('idle');
-    try { this.client.audio.stopWakeword(); } catch (e) { /* no-op */ }
+    this._stopWake(this.client);
     const bye = reason === 'idle timeout'
       ? 'I have been quiet for a while, so I am going back to normal.'
       : 'Okay, back to normal Jibo.';
@@ -374,7 +374,7 @@ class Takeover extends EventEmitter {
   async _release (c) {
     const conn = c._conn;
     const ws = conn && conn.ws;
-    try { c.audio && c.audio.stopWakeword(); } catch (e) { /* no-op */ }
+    const wakeClosed = this._stopWake(c);
     if (conn) { conn._destroyed = true; conn.autoReconnect = false; } // no auto-reconnect on this close
     if (ws && ws.readyState === 1 && typeof ws.close === 'function') {
       await new Promise((resolve) => {
@@ -383,7 +383,32 @@ class Takeover extends EventEmitter {
         try { ws.close(1000, 'ClaudeOver off'); } catch (e) { clearTimeout(timer); resolve(); }
       });
     }
+    await wakeClosed;
     try { c.destroy ? c.destroy() : c.disconnect(); } catch (e) { /* no-op */ }
+  }
+
+  /**
+   * Stop the wake-word stream (Jibo :8088 /simple_port) with a CLEAN close.
+   * rom-control's stopWakeword() does ws.terminate(): no close frame. We stop and
+   * re-arm it on every turn, so half-open sockets piled up on Jibo, and his
+   * "Hey Jibo" events may keep going to a dead socket instead of native Jibo
+   * (0.2.5 still deaf after exit). Resolves when Jibo acks (max releaseMs).
+   */
+  _stopWake (c) {
+    const conn = c && c._conn;
+    const w = conn && conn._wakewordWatcher;
+    if (!w) { try { c && c.audio && c.audio.stopWakeword(); } catch (e) { /* no-op */ } return Promise.resolve(); }
+    w._running = false;                 // stop its 3 s auto-reconnect
+    clearTimeout(w._reconnectTimer);
+    conn._wakewordWatcher = null;
+    const ws = w._ws; w._ws = null;
+    if (!ws) return Promise.resolve();
+    if (ws.readyState !== 1) { try { ws.terminate(); } catch (e) { /* no-op */ } return Promise.resolve(); }
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { try { ws.terminate(); } catch (e) { /* no-op */ } resolve(); }, this.cfg.releaseMs);
+      ws.once('close', () => { clearTimeout(timer); resolve(); });
+      try { ws.close(1000, 'ClaudeOver'); } catch (e) { clearTimeout(timer); resolve(); }
+    });
   }
 
   /** For process shutdown: release Jibo quickly (clean close, max releaseMs), no goodbye. */
