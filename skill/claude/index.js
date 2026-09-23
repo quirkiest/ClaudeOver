@@ -2,6 +2,7 @@
 /**
  * @be/claude - "ClaudeOver" main-menu tile.
  *
+ * v0.2.2 - new menu icon (speech bubble + spark, original; source skill/assets/claude-icon.svg).
  * v0.2.1 - exit hint now "pat twice or hold" (matches gateway 0.2.3).
  * v0.2.0 - Tapping the tile asks jibo-gateway to switch Jibo into Claude mode
  * (the gateway opens a ROM session: every "Hey Jibo ..." then goes to Claude).
@@ -22,7 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const gw = require('./gateway_client');
 
-const VERSION = '0.2.1';
+const VERSION = '0.2.2';
 const TAG = '[claudeover v' + VERSION + ']';
 const DUMP_FILE = '/tmp/claude-skill-last.json';
 const CONFIG_FILE = path.join(__dirname, 'config.json');

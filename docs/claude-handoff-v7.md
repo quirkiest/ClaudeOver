@@ -55,7 +55,7 @@ sessions, speech shaping, end detection and local time/date answers.
 | Path | Version | State |
 |---|---|---|
 | `gateway/` | 0.2.4 | 0.2.3 is running and verified. 0.2.4 = fuzzy voice exit + `[[EXIT]]` safety net + `/screen.svg` screen. Gap-based double pat and hold, greeting before arming the wakeword, close code 4000 → off, `TAKEOVER_DEBUG`. 24 worker tests + 20 HTTP tests. |
-| `skill/claude` | 0.2.1 | **Installed and working** (tile after Bad Apple). 7 harness tests. Strict ES2015. |
+| `skill/claude` | 0.2.2 | **0.2.1 installed and working** (tile after Bad Apple). 0.2.2 = new original icon (speech bubble + spark, source `skill/assets/claude-icon.svg`); deploy with `install`, then `tile`, then reboot. 7 harness tests. Strict ES2015. |
 | `skill/deploy.sh` | 0.3.2 | Two-stage install (`install` = skill + lazySkills; `tile` = tile + icon). `umask 022`, `chmod -R a+rX`, and a permission check after every action. New `check`, `fixperms` and `untile` commands. `test/deploy.test.sh`: 19 checks against a mock tree with umask 077. |
 | `skill/tools/register.js` | 0.3.0 | Writes files in place (keeps the owner and mode) and forces them world-readable. Backups copy the original's mode. Refuses to add anything to an unreadable tree. |
 | `bridge/jibo_claude.js` | 0.4.0 | Legacy/fallback. **Never run alongside the takeover.** |
