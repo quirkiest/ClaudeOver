@@ -8,13 +8,13 @@
  * keeps its owner and mode), after a backup made with the same owner and mode.
  *
  *   node nimbus_boop.js status
- *   node nimbus_boop.js apply  [--sound SFX_Global_TurnTakingOff]
+ *   node nimbus_boop.js apply  [--sound SFX_VolumeIncDec]
  *   node nimbus_boop.js revert
  */
 'use strict';
 var fs = require('fs');
 
-var VERSION = '0.1.0';
+var VERSION = '0.1.1';
 var BE = '/opt/jibo/Jibo/Skills/@be/be';
 var TARGET = BE + '/skills/nimbus/index.js';
 var BACKUP = TARGET + '.bak-boop';
@@ -40,11 +40,14 @@ function describe(path) {
 }
 
 function snippet(sound) {
-  // Plain ES5-ish code; uses only objects Nimbus already has (this.nimbus.jibo).
-  return '                ' + MARK + ' try { var __j = this.nimbus.jibo, __a = ' + JSON.stringify(sound) +
-    ', __play = function () { __j.sound.play(__a); }; if (__j.sound.exists(__a)) { __play(); } else { __j.loader.load(' +
+  // Plain ES5-ish code; uses only objects Nimbus already has (this.nimbus.jibo, this.nimbus.log).
+  // Logs every outcome so a silent boop can be diagnosed from the skill log (grep nimbus-boop).
+  return '                ' + MARK + ' try { var __n = this.nimbus, __j = __n.jibo, __a = ' + JSON.stringify(sound) +
+    ', __play = function (how) { var __r = __j.sound.play(__a); __n.log.info("nimbus-boop played " + __a + " (" + how + ", instance=" + !!__r + ")"); };' +
+    ' if (__j.sound.exists(__a)) { __play("cached"); } else { __j.loader.load(' +
     JSON.stringify(SOUND_DIR + '/' + sound + '.m4a') +
-    ', function (e) { if (!e) { __play(); } }); } } catch (__e) { this.nimbus.log.warn("nimbus-boop failed", __e); }\n';
+    ', function (e) { if (e) { __n.log.warn("nimbus-boop load failed", e); } else if (__j.sound.exists(__a)) { __play("loaded"); } else { __n.log.warn("nimbus-boop loaded but no alias " + __a); } }); } }' +
+    ' catch (__e) { this.nimbus.log.warn("nimbus-boop failed", __e); }\n';
 }
 
 function status() {
@@ -59,7 +62,7 @@ function status() {
 }
 
 function apply() {
-  var sound = readArg('--sound', 'SFX_Global_TurnTakingOff');
+  var sound = readArg('--sound', 'SFX_VolumeIncDec');
   if (!fs.existsSync(SOUND_DIR + '/' + sound + '.m4a')) throw new Error('No such sound: ' + sound + ' (see status)');
   var src = fs.readFileSync(TARGET, 'utf8');
   if (src.indexOf(MARK) >= 0) { console.log('Already patched; run revert first to change the sound.'); return; }

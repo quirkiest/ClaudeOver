@@ -1,46 +1,75 @@
-# Jibo TTS dictionary tool (v0.1.0)
+# nimbus-boop
 
-This tool gives Jibo's on-robot text-to-speech a much bigger pronunciation dictionary.
+**Version:** 0.1.1
 
-## Why
+Plays a short earcon on Jibo when the answer skill (`@be/nimbus`) starts its thinking animation. That happens once the server has finished transcribing, while it waits on Claude. So the boop tells you:
 
-The TTS service loads a single file: `voices/en_us_world/en_us_world.dictionary`. It holds about 29.5k words (46k entries), trimmed from the Combilex lexicon. Any other word falls to a rule-based guesser (G2P); examples include *colonel*, *yacht*, *island*, *debt*, *knight* and *psychology*.
+- "I heard you"
+- how fast Whisper was: the gap between you stopping speaking and the boop
 
-The robot also ships `en_us_world.dictionary_full` (Combilex, about 131k words and 197k entries). It uses the same phone set and part-of-speech tags, but the TTS service never loads it.
+It runs **on Jibo**, with Jibo's own node, and edits `/opt/jibo/Jibo/Skills/@be/be/skills/nimbus/index.js` in place, so the file keeps its owner and mode (on BEam 3.1.4 that is `777 root:root`). Before changing anything it makes a backup, `index.js.bak-boop`, with the same owner and mode. It refuses to patch if its anchor (`if (isGQA) {`) isn't found exactly once.
 
-`build` merges the two dictionaries. When both have the same word and part of speech, Jibo's curated entry wins. It then applies `fixes.txt`, a list of hand-checked corrections (for example *gills*, which Combilex pronounces "jills"). The output is about 203k entries, 131k words and 8 MB.
+| Command | What it does |
+|---|---|
+| `node nimbus_boop.js status` | Shows the target's mode/uid/gid, whether it's patched, the anchor match count, the backup, and the sounds available |
+| `node nimbus_boop.js apply [--sound NAME]` | Inserts the boop. Default sound: `SFX_VolumeIncDec` (the volume-change blip; preloaded by the SDK) |
+| `node nimbus_boop.js revert` | Restores the file from the backup, in place |
 
-Every pronunciation is checked against `<voice>.phones` before it's written, and duplicate word + part-of-speech entries are dropped.
+To change the sound, run `revert`, then `apply --sound <name from status>`, then reboot.
 
-## Use (on the linux box)
+## Install
+
+Every block says which host it runs on. **Reboot is always the last step, on its own.**
+
+**1. Linux box:** copy the tool to Jibo.
 
 ```sh
-python3 jibo_tts_dict.py build --voice-dir ~/jibo-tts/en_us_world --fixes fixes.txt --out ~/jibo-tts/en_us_world.dictionary.merged
-python3 jibo_tts_dict.py lookup --dict ~/jibo-tts/en_us_world.dictionary.merged gills colonel
+cd ~/ClaudeOver && git pull
+scp tools/nimbus-boop/nimbus_boop.js root@192.168.20.40:/tmp/
 ```
 
-The build needs these three files in `--voice-dir`:
+**2. Jibo:** check first.
 
-- `en_us_world.dictionary`
-- `en_us_world.dictionary_full`
-- `en_us_world.phones`
+```sh
+jibo-mount --rw
+node /tmp/nimbus_boop.js status
+```
 
-## Fixes file
+`anchor` must say **1 match(es)**. If it doesn't, stop.
 
-Each line is `word | POS | stress phones|stress phones`, in the same format as the dictionary.
+**3. Jibo:** apply.
 
-- Each syllable is a stress digit (0, 1 or 2) followed by phones from the `.phones` file.
-- Syllables are separated by `|` with no spaces around it.
-- A fix line replaces the entry for that word + POS, or adds it if there isn't one.
+```sh
+node /tmp/nimbus_boop.js apply
+node /tmp/nimbus_boop.js status
+```
 
-Example: `gills | NNS | 1 g iy lf z`
+Check that `target` and `backup` both show the same mode/uid/gid, and that `patched yes` is shown.
 
-## Install and roll back
+**4. Jibo:** reboot.
 
-See the steps in handoff v8.1+. In short:
+```sh
+reboot
+```
 
-1. Back up the robot's dictionary.
-2. Copy the merged file over it with `cp`, which keeps the file's owner and mode.
-3. Reboot.
+## Rollback (Jibo)
 
-To roll back, restore the backup and reboot.
+```sh
+jibo-mount --rw
+node /tmp/nimbus_boop.js revert
+ls -l /opt/jibo/Jibo/Skills/@be/be/skills/nimbus/index.js
+```
+
+Then reboot on its own:
+
+```sh
+reboot
+```
+
+`/tmp` is cleared at boot, so run the `scp` from step 1 again before a later revert.
+
+## History
+
+- **0.1.1:** the default sound is now `SFX_VolumeIncDec`, because `SFX_Global_TurnTakingOff` wasn't audible over the thinking animation's sound. Every outcome is logged (`nimbus-boop played …`, `load failed`, `failed`).
+
+- **0.1.0:** first version. Anchors on the `isGQA` block in `ProcessCloudState.onEntry`, and loads the SFX file if its alias isn't loaded yet.
