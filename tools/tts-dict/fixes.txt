@@ -1,0 +1,3 @@
+# Hand-checked fixes for Jibo TTS (word | POS | pronunciation). Loaded after the merge; these win.
+# gills: Combilex gives the "jill" (liquid measure) reading for the plural.
+gills | NNS | 1 g iy lf z
